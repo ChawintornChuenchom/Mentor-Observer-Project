@@ -1,0 +1,7 @@
+# ละเว้นโฟลเดอร์ node_modules
+node_modules/
+__pycache__/
+venv/
+
+# ละเว้นไฟล์ .env ที่เก็บรหัสผ่าน
+.env
