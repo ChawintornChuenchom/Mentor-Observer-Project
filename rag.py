@@ -1,13 +1,14 @@
+import base64
 import hashlib
 from pathlib import Path
 from openai import OpenAI
-from config import MODEL_EMBEDDING
+from config import MODEL_EMBEDDING, MODEL_OCR
 
 import chromadb
 from chromadb.utils import embedding_functions
 
 try:
-    import pypdf
+    import fitz  # PyMuPDF
     HAS_PDF = True
 except ImportError:
     HAS_PDF = False
@@ -25,7 +26,42 @@ except ImportError:
     HAS_PPTX = False
 
 
-def extract_text(file_path: str) -> str:
+def ocr_pdf(file_path: str, client: OpenAI, dpi: int = 200) -> str:
+    """แปลงแต่ละหน้า PDF เป็นรูปภาพแล้วให้ Gemini อ่านข้อความ (OCR)"""
+    if not HAS_PDF:
+        raise ImportError("ติดตั้ง pymupdf ก่อน: pip install pymupdf")
+
+    doc   = fitz.open(file_path)
+    pages = []
+
+    for i, page in enumerate(doc):
+        pix       = page.get_pixmap(dpi=dpi)
+        img_b64   = base64.b64encode(pix.tobytes("png")).decode("utf-8")
+
+        response = client.chat.completions.create(
+            model=MODEL_OCR,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "อ่านและถอดข้อความทั้งหมดในภาพนี้ออกมาตามลำดับที่ปรากฏ "
+                                 "ห้ามสรุปหรือแปล ให้ตอบเฉพาะข้อความที่อ่านได้เท่านั้น"
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{img_b64}"}
+                    }
+                ]
+            }]
+        )
+        pages.append(response.choices[0].message.content or "")
+
+    doc.close()
+    return "\n\n".join(pages)
+
+
+def extract_text(file_path: str, client: OpenAI = None) -> str:
     path = Path(file_path)
     ext  = path.suffix.lower()
 
@@ -33,10 +69,9 @@ def extract_text(file_path: str) -> str:
         return path.read_text(encoding="utf-8", errors="ignore")
 
     elif ext == ".pdf":
-        if not HAS_PDF:
-            raise ImportError("ติดตั้ง pypdf ก่อน: pip install pypdf")
-        reader = pypdf.PdfReader(file_path)
-        return "\n".join(page.extract_text() or "" for page in reader.pages)
+        if client is None:
+            raise ValueError("ต้องส่ง client (OpenAI/OpenRouter) เพื่อทำ OCR ไฟล์ PDF ด้วย Gemini")
+        return ocr_pdf(file_path, client)
 
     elif ext == ".docx":
         if not HAS_DOCX:
@@ -75,6 +110,7 @@ class RAG:
     def __init__(self, lesson_path: str, client: OpenAI, cost_tracker=None):
         self.lesson_path = Path(lesson_path)
         self.db_path     = str(self.lesson_path / "chroma_db")
+        self.client      = client
 
         self.ef = embedding_functions.OpenAIEmbeddingFunction(
             api_key=client.api_key,
@@ -104,7 +140,7 @@ class RAG:
         for file in files:
             print(f"  กำลังประมวลผล: {file.name}")
             try:
-                text   = extract_text(str(file))
+                text   = extract_text(str(file), self.client)
                 chunks = chunk_text(text)
 
                 ids, docs, metas = [], [], []
