@@ -14,8 +14,8 @@ PRICE_OBSERVER_OUT = float(os.getenv("PRICE_OBSERVER_OUT", "5.00"))
 PRICE_SYNTH_IN     = float(os.getenv("PRICE_SYNTH_IN",     "0.30"))
 PRICE_SYNTH_OUT    = float(os.getenv("PRICE_SYNTH_OUT",    "2.50"))
 PRICE_EMBED_IN     = float(os.getenv("PRICE_EMBED_IN",     "0.02"))
-PRICE_OCR_IN       = float(os.getenv("PRICE_OCR_IN",       "0.10"))
-PRICE_OCR_OUT      = float(os.getenv("PRICE_OCR_OUT",      "0.40"))
+PRICE_OCR_IN       = float(os.getenv("PRICE_OCR_IN",       "0.104"))
+PRICE_OCR_OUT      = float(os.getenv("PRICE_OCR_OUT",      "0.416"))
 THB_PER_USD        = float(os.getenv("THB_PER_USD",        "34.0"))
 
 
