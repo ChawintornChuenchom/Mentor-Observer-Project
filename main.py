@@ -3,7 +3,7 @@ from pathlib import Path
 from tkinter import Tk, filedialog
 from openai import OpenAI
 from config import OPENROUTER_API_KEY
-from rag import RAG
+from rag import RAG, pdf_to_txt
 from synthesizer import Synthesizer
 from cost_tracker import CostTracker
 
@@ -75,15 +75,34 @@ def main():
         shutil.copy2(f, dest)
         print(f"  ✅ {f.name}")
 
-    # RAG
-    print("\n[1/2] กำลังทำ RAG...")
+    # OCR: แปลงไฟล์ PDF เป็นข้อความ (.txt) ก่อน แล้วค่อยเอาไป index
+    print("\n[1/3] กำลังแปลงไฟล์ PDF เป็นข้อความ (OCR)...")
+    try:
+        pdf_to_txt(str(lesson_path), client, cost_tracker=tracker)
+    except ImportError as e:
+        print(f"  ⚠️  {e}")
+        print("  ออกจากระบบ — ติดตั้งแล้วรันใหม่")
+        return
+
+    # RAG: เอาไฟล์ข้อความไปทำ ChromaDB
+    print("\n[2/3] กำลังทำ RAG...")
     rag = RAG(str(lesson_path), client, cost_tracker=tracker)
-    rag.index_files()
+    total_chunks = rag.index_files()
+
+    if not total_chunks:
+        print("\n⚠️  ไม่มีเนื้อหาถูก index — หยุดก่อนสังเคราะห์วัตถุประสงค์")
+        tracker.print_summary()
+        return
 
     # Synthesizer
-    print("\n[2/2] กำลังสังเคราะห์วัตถุประสงค์...")
-    synth      = Synthesizer(client, rag, cost_tracker=tracker)
-    objectives = synth.synthesize(str(lesson_path))
+    print("\n[3/3] กำลังสังเคราะห์วัตถุประสงค์...")
+    synth = Synthesizer(client, rag, cost_tracker=tracker)
+    try:
+        objectives = synth.synthesize(str(lesson_path))
+    except ValueError as e:
+        print(f"\n⚠️  {e}")
+        tracker.print_summary()
+        return
 
     # แสดงผล
     print("\n" + "=" * 55)

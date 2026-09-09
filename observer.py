@@ -2,6 +2,46 @@ import json
 from openai import OpenAI
 from config import MODEL_OBSERVER
 
+# ขั้นต่ำสำหรับ prompt caching ของ Claude Haiku 4.5 (ต่ำกว่านี้ Anthropic จะไม่ cache ให้)
+CACHE_MIN_TOKENS = 4096
+
+
+def _approx_tokens(text: str) -> int:
+    """ประมาณจำนวนโทเคนแบบคร่าวๆ (ข้อความไทยกินโทเคนเยอะ ~1 โทเคน / 2 อักขระ)"""
+    return len(text) // 2
+
+
+def _format_history(messages: list) -> str:
+    """chat history เป็นข้อความธรรมดา — ประหยัด token กว่า json.dumps(indent=2) ~45%
+    โดยได้ข้อมูลเท่าเดิม"""
+    return "\n".join(
+        f"{'นักเรียน' if m['role'] == 'user' else 'Mentor'}: {m['content']}"
+        for m in messages
+    )
+
+
+def _system_message(static_text: str, dynamic_text: str = "") -> dict:
+    """system message ที่ใส่ cache_control (Anthropic explicit caching) ให้อัตโนมัติ
+    เมื่อความยาวรวมถึงขั้นต่ำ — ไม่ถึงก็ส่งเป็น string ธรรมดาเหมือนเดิม
+
+    OBSERVER_*_PROMPT เป็น static text ที่ Observer เรียกซ้ำทุกครั้งที่ trigger
+    ถ้า cache ได้ ครั้งต่อๆ ไปใน 5 นาทีจะ hit ทั้ง prefix
+    """
+    combined = static_text + dynamic_text
+    if _approx_tokens(combined) < CACHE_MIN_TOKENS:
+        sep = "\n\n" if dynamic_text else ""
+        return {"role": "system", "content": static_text + sep + dynamic_text}
+
+    blocks = [{"type": "text", "text": static_text}]
+    if dynamic_text:
+        blocks.append({"type": "text", "text": dynamic_text})
+    # cache ทั้ง prefix (static + dynamic) — breakpoint อยู่ที่ block สุดท้าย
+    blocks[-1]["cache_control"] = {"type": "ephemeral"}
+    # ถ้าตัว static เองก็ยาวพอ ใส่ breakpoint แยกด้วย → hit ทุกครั้งแม้ LO ที่ตรวจเปลี่ยน
+    if dynamic_text and _approx_tokens(static_text) >= CACHE_MIN_TOKENS:
+        blocks[0]["cache_control"] = {"type": "ephemeral"}
+    return {"role": "system", "content": blocks}
+
 OBSERVER_HARD_PROMPT = """คุณคือ AI-Observer ประเมินการเรียนรู้ของนักเรียนจากบทสนทนา
 
 กติกาทอง: ประเมินเฉพาะสิ่งที่นักเรียนพูดเองเท่านั้น
@@ -20,9 +60,14 @@ OBSERVER_HARD_PROMPT = """คุณคือ AI-Observer ประเมิน�
 output เป็น JSON เท่านั้น ห้ามมี markdown:
 {"hard":[{"id":"s1","s":3,"e":"หลักฐานสั้นๆ"}],"lock":[],"n":[]}"""
 
-OBSERVER_SOFT_PROMPT = """คุณคือ AI-Observer ประเมิน Soft Skill จาก transcript การสนทนาทั้งหมด
+OBSERVER_SOFT_PROMPT = """คุณคือ AI-Observer ประเมิน Soft Skill ของนักเรียน
 
-กติกาทอง: ประเมินเฉพาะสิ่งที่นักเรียนพูดเองเท่านั้น
+คุณจะได้รับข้อมูล 3 ส่วน (ไม่ใช่ transcript เต็ม):
+1. บันทึกรายรอบ — สรุปเชิงตัวเลขของทุกรอบ (จำนวนรอบ, การถามคำถามกลับ, การขอเฉลย, คะแนน Hard ที่ประเมินได้รอบนั้น)
+2. สรุปช่วงต้น session — บทสนทนาช่วงแรกที่ถูกย่อ
+3. บทสนทนาช่วงท้าย — ข้อความจริง ~12 ข้อความสุดท้าย
+
+กติกาทอง: ประเมินเฉพาะสิ่งที่นักเรียนพูด/ทำเองเท่านั้น ไม่ใช่สิ่งที่ Mentor พูด
 คะแนนสะท้อนจุดที่ดีที่สุดที่แสดงออกมา ไม่ใช่ค่าเฉลี่ย
 
 เกณฑ์คะแนน (เต็ม 3 — ได้ 3 = ผ่าน):
@@ -53,7 +98,7 @@ critical_thinking — วิเคราะห์ โต้แย้ง มอ�
 - 0 = รับข้อมูลทุกอย่างโดยไม่ตั้งคำถาม หรือยึดถือความเข้าใจผิดแม้ถูกชี้
 
 learning_speed — เรียนรู้เร็วแค่ไหน วัดจาก 2 อย่าง:
-  1. จำนวน message ก่อนแสดงความเข้าใจแต่ละจุด น้อย = เรียนเร็ว
+  1. จำนวนรอบ (t ในบันทึกรายรอบ) กว่าคะแนน Hard ของแต่ละหัวข้อจะขึ้นถึง 3 — น้อย = เรียนเร็ว
   2. เชื่อมโยงเนื้อหาใหม่กับความรู้เดิมได้เองโดยไม่ต้องให้ Mentor ชี้
 - 3 = เข้าใจได้เร็ว ต้องการ message น้อย เชื่อมโยงเนื้อหาได้เอง
 - 2 = เรียนรู้ได้ในระยะปานกลาง เชื่อมโยงได้บ้างเมื่อ Mentor ชี้แนะ
@@ -87,26 +132,26 @@ class Observer:
         self.objectives = objectives
         self.call_count = 0
 
-    def _build_hard_prompt(self, lo_list: list[str]) -> str:
+    def _hard_lo_context(self, lo_list: list[str]) -> str:
         sub_los = {
             lo["id"]: lo["statement"]
             for lo in self.objectives.get("sub_los", [])
             if lo["id"] in lo_list
         }
         lo_context = "\n".join(f"- {k}: {v}" for k, v in sub_los.items())
-        return OBSERVER_HARD_PROMPT + f"\n\nSub LO ที่ตรวจรอบนี้:\n{lo_context}"
+        return f"Sub LO ที่ตรวจรอบนี้:\n{lo_context}"
 
     def evaluate_hard(self, chat_history: list, lo_list: list[str]) -> dict:
         """ประเมิน Hard Skill — เรียกระหว่าง session เมื่อ Mentor trigger"""
         self.call_count += 1
         messages = [
-            {"role": "system", "content": self._build_hard_prompt(lo_list)},
+            _system_message(OBSERVER_HARD_PROMPT, self._hard_lo_context(lo_list)),
             {
                 "role": "user",
                 "content": (
                     f"ตรวจสอบ: {', '.join(lo_list)}\n\n"
                     f"บทสนทนาล่าสุด:\n"
-                    f"{json.dumps(chat_history[-6:], ensure_ascii=False, indent=2)}"
+                    f"{_format_history(chat_history[-6:])}"
                 )
             }
         ]
@@ -121,18 +166,35 @@ class Observer:
         except json.JSONDecodeError:
             return {"hard": [], "lock": [], "n": [f"parse error: {raw[:80]}"]}
 
-    def evaluate_soft(self, chat_history: list) -> dict:
-        """ประเมิน Soft Skill 4 มิติ — เรียกครั้งเดียวตอนจบ session"""
-        print("\n  [🧠 Observer กำลังประเมิน Soft Skill จาก transcript ทั้งหมด...]")
+    def evaluate_soft(self, chat_history: list, history_summary: str | None = None,
+                      session_events: list | None = None) -> dict:
+        """ประเมิน Soft Skill 4 มิติ — เรียกครั้งเดียวตอนจบ session
+
+        ไม่ส่ง transcript เต็ม (เปลือง token มากใน session ยาว) แต่ส่ง 3 อย่าง:
+        - session_events: บันทึกย่อรายรอบ (สร้างโดยไม่ใช้ LLM) → learning_speed/persistence แม่นขึ้น
+        - history_summary: rolling summary ช่วงต้นจาก Mentor
+        - 12 ข้อความท้าย verbatim → ไว้ดู texture การพูดจริง
+        """
+        print("\n  [🧠 Observer กำลังประเมิน Soft Skill...]")
+
+        parts = []
+        if session_events:
+            lines = "\n".join(
+                json.dumps(e, ensure_ascii=False, separators=(",", ":"))
+                for e in session_events
+            )
+            parts.append(
+                "บันทึกรายรอบ (t=รอบที่, lo=หัวข้อ, len=ความยาวข้อความนักเรียน, "
+                "q=ถามคำถามกลับ, giveup=ขอเฉลย/ยอมแพ้, hard=คะแนน Hard ที่ประเมินรอบนั้น):\n"
+                + lines
+            )
+        if history_summary:
+            parts.append(f"สรุปช่วงต้น session:\n{history_summary}")
+        parts.append("บทสนทนาช่วงท้าย:\n" + _format_history(chat_history[-12:]))
+
         messages = [
-            {"role": "system", "content": OBSERVER_SOFT_PROMPT},
-            {
-                "role": "user",
-                "content": (
-                    f"transcript ทั้งหมด ({len(chat_history)} messages):\n"
-                    f"{json.dumps(chat_history, ensure_ascii=False, indent=2)}"
-                )
-            }
+            _system_message(OBSERVER_SOFT_PROMPT),
+            {"role": "user", "content": "\n\n---\n\n".join(parts)}
         ]
         response = self.client.chat.completions.create(
             model=self.model,

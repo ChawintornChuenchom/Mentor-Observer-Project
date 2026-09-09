@@ -1,13 +1,19 @@
 import json
+import re
 from pathlib import Path
 from openai import OpenAI
-from config import MODEL_MENTOR, OPENROUTER_API_KEY
+from config import MODEL_MENTOR, MODEL_SYNTHESIZER, OPENROUTER_API_KEY
 from rag import RAG
 from observer import Observer
 from cost_tracker import CostTracker
 
 CHARACTERS_DIR = Path("characters")
 LESSONS_DIR    = Path("lessons")
+
+# จำนวน message ล่าสุดที่ส่งแบบเต็มๆ ที่เก่ากว่านี้จะถูกยุบเป็น rolling summary
+RECENT_WINDOW = 12
+# ปล่อยให้ history โตถึงเท่านี้ก่อนค่อยยุบ (กันไม่ให้เรียก summarizer ทุก turn)
+FOLD_TRIGGER  = RECENT_WINDOW * 2
 
 
 def load_character(name: str) -> str:
@@ -17,11 +23,19 @@ def load_character(name: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def build_mentor_prompt(character_text: str, objectives: dict, rag_context: str) -> str:
-    sub_los = "\n".join(
-        f"- {lo['id']}: {lo['statement']}"
-        for lo in objectives.get("sub_los", [])
-    )
+def build_static_system_prompt(character_text: str, objectives: dict) -> str:
+    """สร้าง system prompt ส่วนที่ "นิ่ง" ตลอด session — สร้างครั้งเดียวตอนเริ่ม
+
+    ห้ามใส่อะไรที่เปลี่ยนรายเทิร์น (RAG context, หัวข้อปัจจุบัน ฯลฯ) ลงในนี้
+    เพราะ Gemini 2.5 Flash ใช้ implicit caching ได้ต่อเมื่อ prefix ของ messages เหมือนเดิม
+    ส่วนที่เปลี่ยนทุกเทิร์นให้ไปแนบท้ายข้อความ user ล่าสุดแทน
+    """
+    sub_lo_lines = []
+    for lo in objectives.get("sub_los", []):
+        lo_type = lo.get("type", "conceptual")
+        sub_lo_lines.append(f"- {lo['id']} [{lo_type}]: {lo['statement']}")
+    sub_los = "\n".join(sub_lo_lines)
+
     return f"""คุณคือ AI-Mentor ตามคาแรกเตอร์และกฎต่อไปนี้:
 
 {character_text}
@@ -30,21 +44,27 @@ def build_mentor_prompt(character_text: str, objectives: dict, rag_context: str)
 บทเรียน: {objectives.get('lesson_title', '')}
 วัตถุประสงค์หลัก: {objectives.get('main_lo', '')}
 
-Sub LO ที่ต้องสอนให้ครบ:
+Sub LO ที่ต้องสอนให้ครบ (ในวงเล็บเหลี่ยมคือประเภท):
 {sub_los}
+
+ประเภทของ Sub LO:
+- [conceptual] = วัดความเข้าใจ / วิเคราะห์ / เปรียบเทียบ / ประยุกต์
+  → ใช้ Socratic ถามนำให้นักเรียนคิดเอง ห้ามบอกคำตอบตรงๆ
+  → ก่อนไปหัวข้อถัดไป นักเรียนต้องสรุปด้วยคำพูดตัวเองก่อน
+- [factual] = ข้อมูล / โครงสร้างเอกสาร / นิยาม / ตัวเลข-ชื่อ ที่ต้องจำตรงตัว
+  → บอกข้อมูลจาก [บริบทอ้างอิง] ให้นักเรียนตรงๆ ได้เลย ไม่ต้องให้ทายคำตอบ
+  → แล้วค่อยถามคำถามต่อยอดเชิงเข้าใจ
 
 ---
 กฎการสอนที่ต้องปฏิบัติเสมอ:
-- ใช้คำถามนำให้นักเรียนคิดเอง ห้ามบอกคำตอบตรงๆ
-- ถ้านักเรียนตอบสั้นหรือไม่มีเหตุผล ให้ถามกลับว่า "ทำไมถึงคิดแบบนั้น?"
-- ห้ามสรุปเนื้อหาให้นักเรียนก่อนที่นักเรียนจะลองสรุปเอง
-- ก่อนไปหัวข้อถัดไป นักเรียนต้องสรุปด้วยคำพูดตัวเองก่อน
+- ยึด [หัวข้อที่กำลังสอน] ที่แนบมากับข้อความนักเรียนเป็นหลัก อย่าหลุดประเด็น
+- ถ้านักเรียนพิมพ์เรื่องนอกบทเรียน (บ่น / หงุดหงิด / คุยเล่น) ให้ตอบสั้นๆ ตามคาแรกเตอร์
+  แล้วดึงกลับเข้าหัวข้อปัจจุบัน อย่าดึงเนื้อหาอื่นมาตอบให้หลุดทาง
+- ใช้เฉพาะข้อมูลใน [บริบทอ้างอิง] ที่แนบมา อย่าเดาเนื้อหาเอง ถ้าบริบทไม่พอให้ถามนักเรียนกลับ
+- (conceptual) ถ้านักเรียนตอบสั้นหรือไม่มีเหตุผล ให้ถามกลับว่า "ทำไมถึงคิดแบบนั้น?"
+- (conceptual) ห้ามสรุปเนื้อหาให้นักเรียนก่อนที่นักเรียนจะลองสรุปเอง
 - ห้ามบอกว่านักเรียนผ่านหรือไม่ผ่าน
 - ห้ามพูดถึง AI-Observer ต่อหน้านักเรียน
-
----
-เนื้อหาอ้างอิงจาก RAG (ใช้สอนนักเรียน อย่าอ่านออกมาตรงๆ):
-{rag_context}
 
 ---
 trigger Observer เมื่อนักเรียน:
@@ -58,10 +78,39 @@ trigger Observer เมื่อนักเรียน:
 output ต้องเป็น JSON เสมอ ห้ามมี markdown:
 {{
   "reply": "ข้อความที่จะพูดกับนักเรียน",
+  "current_lo": "s1",
   "trigger_observer": true หรือ false,
-  "trigger_lo": ["s1"] หรือ [],
-  "trigger_reason": "เหตุผลสั้นๆ"
-}}"""
+  "trigger_lo": ["s1"] หรือ []
+}}
+
+current_lo = id ของ Sub LO ที่กำลังสอนอยู่ ณ ข้อความนี้ (เลือกจากรายการด้านบน 1 ค่าเสมอ)"""
+
+
+def summarize_history(client: OpenAI, messages: list, prev_summary: str | None,
+                      tracker: CostTracker | None = None) -> str:
+    """ยุบข้อความเก่าเป็น rolling summary สั้นๆ 1 ก้อน (เรียก MODEL_SYNTHESIZER ครั้งเดียว)"""
+    convo = "\n".join(
+        f"{'นักเรียน' if m['role'] == 'user' else 'Mentor'}: {m['content']}"
+        for m in messages
+    )
+    base = f"สรุปเดิม (รวมเข้าไปด้วย):\n{prev_summary}\n\n" if prev_summary else ""
+
+    resp = client.chat.completions.create(
+        model=MODEL_SYNTHESIZER,
+        messages=[
+            {"role": "system", "content":
+                "สรุปบทสนทนาการสอนต่อไปนี้เป็นภาษาไทยสั้นๆ ไม่เกิน 6 บรรทัด "
+                "เก็บเฉพาะ: หัวข้อที่สอนไปแล้ว, สิ่งที่นักเรียนเข้าใจ/ยังไม่เข้าใจ, "
+                "ความเข้าใจผิดที่พบ ตอบเป็นข้อความสรุปล้วนๆ ไม่มีเกริ่นนำ"},
+            {"role": "user", "content": f"{base}บทสนทนา:\n{convo}"}
+        ]
+    )
+    if tracker is not None and getattr(resp, "usage", None):
+        tracker.track_synthesizer(
+            resp.usage.prompt_tokens or 0,
+            resp.usage.completion_tokens or 0
+        )
+    return resp.choices[0].message.content.strip()
 
 
 def parse_json(raw: str) -> dict:
@@ -128,14 +177,28 @@ def main(client: OpenAI):
     observer = Observer(client, objectives)
     tracker  = CostTracker()
 
-    # RAG context เริ่มต้น
-    rag_context = "\n\n".join(
-        rag.query(objectives.get("main_lo", "เนื้อหาหลัก"), n_results=5)
+    # ── system prompt ส่วน static (สร้างครั้งเดียว ไม่แก้อีกตลอด session) ──
+    static_system_prompt = build_static_system_prompt(character_text, objectives)
+
+    # sticky-route ไป provider เดิม เพื่อรักษา implicit cache ของ Gemini ให้ warm
+    session_id   = re.sub(r"\s+", "-",
+                          f"mentor-{subject}-{lesson}-{character_name}-{tracker.session_start}")
+    mentor_extra = {"session_id": session_id}
+
+    # ── state ระดับ session ──
+    sub_los_list = objectives.get("sub_los", [])
+    sub_lo_map   = {lo["id"]: lo for lo in sub_los_list}
+    current_sub_lo = next(
+        (lo for lo in sub_los_list if lo.get("tag") == "core"),
+        sub_los_list[0] if sub_los_list else None
     )
-    system_prompt    = build_mentor_prompt(character_text, objectives, rag_context)
+
     chat_history     = []
-    hard_scores      = {lo["id"]: None for lo in objectives.get("sub_los", [])}
+    hard_scores      = {lo["id"]: None for lo in sub_los_list}
     pending_feedback = None
+    history_summary  = None   # rolling summary ของข้อความที่ถูกยุบไปแล้ว
+    summary_covers   = 0      # จำนวน message แรกของ chat_history ที่ยุบเข้า summary แล้ว
+    session_events   = []     # บันทึกย่อรายรอบ (ป้อนให้ soft eval ตอนจบ แทน transcript เต็ม)
 
     print(f"\n{'=' * 55}")
     print(f"  {character_name} | {subject} / {lesson}")
@@ -146,9 +209,10 @@ def main(client: OpenAI):
     opening_resp = client.chat.completions.create(
         model=MODEL_MENTOR,
         messages=[
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": static_system_prompt},
             {"role": "user",   "content": "[เริ่ม session ใหม่ ทักทายนักเรียนและแนะนำบทเรียน]"}
-        ]
+        ],
+        extra_body=mentor_extra
     )
 
     opening_raw = opening_resp.choices[0].message.content
@@ -176,7 +240,9 @@ def main(client: OpenAI):
 
         # ── QUIT ──
         if user_input.lower() == "quit":
-            soft_result = observer.evaluate_soft(chat_history)
+            soft_result = observer.evaluate_soft(
+                chat_history, history_summary, session_events
+            )
 
             if hasattr(observer, '_last_usage') and observer._last_usage:
                 tracker.track_observer(
@@ -238,16 +304,64 @@ def main(client: OpenAI):
 
         chat_history.append({"role": "user", "content": user_input})
 
-        # อัปเดต RAG context
-        rag_context   = "\n\n".join(rag.query(user_input, n_results=5))
-        system_prompt = build_mentor_prompt(character_text, objectives, rag_context)
+        # ── บันทึกเหตุการณ์รายรอบ (ไม่เรียก LLM) — ใช้ตอน soft eval ──
+        event = {
+            "t":   len(session_events) + 1,
+            "len": len(user_input),
+            "q":   user_input.rstrip().endswith(
+                       ("?", "ไหม", "มั้ย", "หรอ", "เหรอ", "รึเปล่า", "หรือไม่")),
+        }
+        if any(w in user_input for w in ("บอกคำตอบ", "เฉลย", "ยอมแพ้", "ไม่ไหว")):
+            event["giveup"] = True
+        session_events.append(event)
 
-        # สร้าง messages
-        messages = [{"role": "system", "content": system_prompt}]
-        for msg in chat_history[:-1]:
+        # ── RAG: ผสม statement ของหัวข้อปัจจุบันเข้ากับสิ่งที่นักเรียนพิมพ์ ──
+        # กันกรณีนักเรียนพิมพ์เรื่องนอกเนื้อหา แล้วได้ context ที่ไม่เกี่ยวเลย
+        if current_sub_lo:
+            rag_query = f"{current_sub_lo['statement']} {user_input}"
+        else:
+            rag_query = user_input
+        rag_context = "\n\n".join(rag.query(rag_query, n_results=5))
+
+        # ── sliding window: ยุบ history เก่าเมื่อโตเกิน FOLD_TRIGGER ──
+        # (ยุบเป็นชุด ไม่ยุบทีละคู่ทุก turn — เรียก summarizer แค่ทุกๆ ~RECENT_WINDOW turn)
+        n_hist = len(chat_history)
+        if n_hist - summary_covers > FOLD_TRIGGER:
+            fold_upto = n_hist - RECENT_WINDOW
+            if fold_upto % 2 == 0:        # ให้ recent เริ่มด้วย message ของนักเรียนเสมอ
+                fold_upto -= 1
+            if fold_upto > summary_covers:
+                history_summary = summarize_history(
+                    client, chat_history[summary_covers:fold_upto],
+                    history_summary, tracker
+                )
+                summary_covers = fold_upto
+
+        recent = chat_history[summary_covers:]   # ข้อความล่าสุดที่ส่งแบบเต็ม
+
+        # ── สร้าง messages: [static system] + [summary] + [recent] + [last user] ──
+        messages = [{"role": "system", "content": static_system_prompt}]
+        if history_summary:
+            messages.append({
+                "role": "system",
+                "content": f"[สรุปบทสนทนาช่วงต้นที่ผ่านมา]\n{history_summary}"
+            })
+        for msg in recent[:-1]:
             messages.append(msg)
 
-        last_content = user_input
+        # ข้อความล่าสุด: แนบหัวข้อปัจจุบัน + RAG context ท้ายสุด (ส่วนที่เปลี่ยนทุกเทิร์น)
+        lo_marker = ""
+        if current_sub_lo:
+            lo_marker = (
+                f"[หัวข้อที่กำลังสอน: {current_sub_lo['id']} "
+                f"({current_sub_lo.get('type', 'conceptual')}) — "
+                f"{current_sub_lo['statement']}]\n"
+            )
+        last_content = (
+            f"{lo_marker}"
+            f"[บริบทอ้างอิง]\n{rag_context}\n\n"
+            f"---\nนักเรียน: {user_input}"
+        )
         if pending_feedback:
             last_content = (
                 f"[OBSERVER_FEEDBACK: {json.dumps(pending_feedback, ensure_ascii=False)}]\n\n"
@@ -260,7 +374,8 @@ def main(client: OpenAI):
         # ── Mentor ตอบ ──
         resp = client.chat.completions.create(
             model=MODEL_MENTOR,
-            messages=messages
+            messages=messages,
+            extra_body=mentor_extra
         )
 
         raw = resp.choices[0].message.content
@@ -269,15 +384,20 @@ def main(client: OpenAI):
         except json.JSONDecodeError:
             mentor_data = {
                 "reply":            raw,
+                "current_lo":       current_sub_lo["id"] if current_sub_lo else None,
                 "trigger_observer": False,
                 "trigger_lo":       [],
-                "trigger_reason":   ""
             }
 
-        reply          = mentor_data.get("reply", "")
-        will_trigger   = mentor_data.get("trigger_observer", False)
-        trigger_lo     = mentor_data.get("trigger_lo", [])
-        trigger_reason = mentor_data.get("trigger_reason", "")
+        reply        = mentor_data.get("reply", "")
+        will_trigger = mentor_data.get("trigger_observer", False)
+        trigger_lo   = mentor_data.get("trigger_lo", [])
+
+        # อัปเดตหัวข้อปัจจุบันตามที่ Mentor ระบุ
+        new_lo = mentor_data.get("current_lo")
+        if new_lo in sub_lo_map:
+            current_sub_lo = sub_lo_map[new_lo]
+        event["lo"] = current_sub_lo["id"] if current_sub_lo else None
 
         # track Mentor cost
         current_row = None
@@ -294,19 +414,23 @@ def main(client: OpenAI):
 
         # ── Observer ──
         if will_trigger and trigger_lo:
-            print(f"\n  [🔍 Observer → {trigger_lo} | {trigger_reason}]")
+            print(f"\n  [🔍 Observer → {trigger_lo}]")
             feedback    = observer.evaluate_hard(chat_history, trigger_lo)
             obs_summary = ""
 
+            turn_hard = {}
             for item in feedback.get("hard", []):
                 lo_id    = item.get("id")
                 score    = item.get("s")
                 evidence = item.get("e", "")
                 if lo_id in hard_scores and score is not None:
                     hard_scores[lo_id] = score
+                    turn_hard[lo_id] = score
                 obs_summary += f"{lo_id}={score} "
                 status = "✅" if score == 3 else "❌" if score is not None else "⬜"
                 print(f"  [{status} Hard {lo_id} = {score}/3 | {evidence}]")
+            if turn_hard:
+                event["hard"] = turn_hard
 
             for note in feedback.get("n", []):
                 if "PROMPT_INJECTION" in note.upper():

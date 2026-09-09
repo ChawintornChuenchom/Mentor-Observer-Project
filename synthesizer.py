@@ -17,6 +17,18 @@ SYNTHESIZER_PROMPT = """คุณคือระบบสังเคราะ�
 - ห้ามใช้: เข้าใจ รู้ เรียนรู้
 - tag: core = ต้องผ่านทุกข้อ, supporting = เสริม
 
+ทุก sub_lo ต้องมี field "type" เป็นอย่างใดอย่างหนึ่ง:
+- "conceptual" = วัดการเข้าใจ / วิเคราะห์ / เปรียบเทียบ / ประยุกต์แนวคิด
+    Mentor จะสอนแบบ Socratic ถาม-ตอบ ห้ามบอกคำตอบตรงๆ
+    ห้ามเป็นแค่การจำโครงสร้างเอกสาร (เช่น "มีกี่หน่วย" "ชื่อหน่วยคืออะไร"
+    "สารบัญมีอะไรบ้าง") เพราะนั่นคือ recall ไม่ใช่ critical thinking
+- "factual" = ข้อมูลเชิงข้อเท็จจริง / โครงสร้างเอกสาร / นิยามเฉพาะ / ตัวเลข-ชื่อ
+    ที่ต้องจำตรงตัว เถียงไม่ได้ Mentor บอกข้อมูลนี้ตรงๆ ได้เลยแล้วค่อยถามต่อยอด
+    ไม่ต้องเล่นเกมให้นักเรียนทายคำตอบ
+
+แนวทาง: sub_lo ส่วนใหญ่ควรเป็น "conceptual" ให้ "factual" เฉพาะข้อที่เป็น
+ข้อเท็จจริง/โครงสร้างล้วนๆ ซึ่งการถามแบบ Socratic จะไร้ประโยชน์
+
 output เป็น JSON เท่านั้น ห้ามมี markdown:
 {
   "lesson_title": "ชื่อบทเรียน",
@@ -27,6 +39,7 @@ output เป็น JSON เท่านั้น ห้ามมี markdown:
       "id": "s1",
       "statement": "นักเรียนสามารถ...",
       "tag": "core",
+      "type": "conceptual",
       "evidence_chunks": ["c1"]
     }
   ],
@@ -36,9 +49,10 @@ output เป็น JSON เท่านั้น ห้ามมี markdown:
 
 class Synthesizer:
     def __init__(self, client: OpenAI, rag: RAG, cost_tracker=None):
-        self.client = client
-        self.rag    = rag
-        self.model  = MODEL_SYNTHESIZER
+        self.client       = client
+        self.rag          = rag
+        self.model        = MODEL_SYNTHESIZER
+        self.cost_tracker = cost_tracker
 
     def synthesize(self, lesson_path: str) -> dict:
         print("  กำลังสังเคราะห์วัตถุประสงค์...")
@@ -60,6 +74,12 @@ class Synthesizer:
                 seen.add(c)
                 unique_chunks.append(c)
 
+        if not unique_chunks:
+            raise ValueError(
+                "ไม่มีเนื้อหาใน ChromaDB — สังเคราะห์วัตถุประสงค์ไม่ได้ "
+                "(ตรวจสอบว่าไฟล์ถูกแปลงเป็นข้อความและ index สำเร็จหรือไม่)"
+            )
+
         content = "\n\n---\n\n".join(unique_chunks[:20])
 
         response = self.client.chat.completions.create(
@@ -69,6 +89,13 @@ class Synthesizer:
                 {"role": "user",   "content": f"เนื้อหาบทเรียน:\n\n{content}"}
             ]
         )
+
+        usage = getattr(response, "usage", None)
+        if self.cost_tracker is not None and usage:
+            self.cost_tracker.track_synthesizer(
+                getattr(usage, "prompt_tokens", 0) or 0,
+                getattr(usage, "completion_tokens", 0) or 0
+            )
 
         raw = response.choices[0].message.content.strip()
         if raw.startswith("```"):
@@ -83,6 +110,11 @@ class Synthesizer:
         except json.JSONDecodeError:
             print("  ⚠️  parse JSON ไม่ได้ บันทึก raw text แทน")
             objectives = {"error": raw}
+
+        # กัน type หายหรือผิดค่า → default เป็น conceptual (ปลอดภัยสุดสำหรับ Mentor)
+        for lo in objectives.get("sub_los", []):
+            if lo.get("type") not in ("conceptual", "factual"):
+                lo["type"] = "conceptual"
 
         output_path = os.path.join(lesson_path, "objectives.json")
         with open(output_path, "w", encoding="utf-8") as f:

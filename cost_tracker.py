@@ -14,8 +14,8 @@ PRICE_OBSERVER_OUT = float(os.getenv("PRICE_OBSERVER_OUT", "5.00"))
 PRICE_SYNTH_IN     = float(os.getenv("PRICE_SYNTH_IN",     "0.30"))
 PRICE_SYNTH_OUT    = float(os.getenv("PRICE_SYNTH_OUT",    "2.50"))
 PRICE_EMBED_IN     = float(os.getenv("PRICE_EMBED_IN",     "0.02"))
-PRICE_OCR_IN       = float(os.getenv("PRICE_OCR_IN",       "0.075"))
-PRICE_OCR_OUT      = float(os.getenv("PRICE_OCR_OUT",      "0.30"))
+PRICE_OCR_IN       = float(os.getenv("PRICE_OCR_IN",       "0.10"))
+PRICE_OCR_OUT      = float(os.getenv("PRICE_OCR_OUT",      "0.40"))
 THB_PER_USD        = float(os.getenv("THB_PER_USD",        "34.0"))
 
 
@@ -29,6 +29,7 @@ class CostTracker:
     def __init__(self):
         self.session_start    = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.total_spent      = 0.0
+        self.ocr_cost         = 0.0
         self.embedding_cost   = 0.0
         self.synthesizer_cost = 0.0
         self.mentor_cost      = 0.0
@@ -46,6 +47,13 @@ class CostTracker:
         print(f"  💰 {label}: in={in_tok}tok(${in_cost:.6f}) "
               f"out={out_tok}tok(${out_cost:.6f}) "
               f"total=${total:.6f} | เหลือ {rem_str}")
+
+    def track_ocr(self, in_tok: int, out_tok: int):
+        in_cost, out_cost = calc_cost(in_tok, out_tok,
+                                      PRICE_OCR_IN, PRICE_OCR_OUT)
+        self.ocr_cost    += in_cost + out_cost
+        self.total_spent += in_cost + out_cost
+        self._print_cost_line("OCR", in_tok, out_tok, in_cost, out_cost)
 
     def track_embedding(self, in_tok: int):
         in_cost, _ = calc_cost(in_tok, 0, PRICE_EMBED_IN, 0)
@@ -121,6 +129,7 @@ class CostTracker:
         print(f"\n{'=' * 55}")
         print(f"  💰 สรุปค่าใช้จ่าย")
         print(f"{'=' * 55}")
+        print(f"  OCR:         ${self.ocr_cost:.6f}")
         print(f"  Embedding:   ${self.embedding_cost:.6f}")
         print(f"  Synthesizer: ${self.synthesizer_cost:.6f}")
         print(f"  Mentor:      ${self.mentor_cost:.6f}")

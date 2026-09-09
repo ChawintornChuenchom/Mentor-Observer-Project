@@ -7,7 +7,7 @@ from openai import OpenAI
 from config import OPENROUTER_API_KEY
 from cost_tracker import THB_PER_USD
 from check_credits import get_remaining
-from rag import extract_text
+from rag import ocr_pdf
 
 
 def main():
@@ -30,7 +30,10 @@ def main():
 
     for pdf_path in targets:
         txt_path = pdf_path.with_suffix(".txt")
-        text = extract_text(str(pdf_path), client)
+        if txt_path.exists() and txt_path.stat().st_size > 0:
+            print(f"[SKIP] {pdf_path} (มี {txt_path.name} อยู่แล้ว)")
+            continue
+        text = ocr_pdf(str(pdf_path), client)
         txt_path.write_text(text, encoding="utf-8")
         print(f"[OK] {pdf_path} -> {txt_path}")
 
