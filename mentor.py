@@ -15,6 +15,12 @@ RECENT_WINDOW = 12
 # ปล่อยให้ history โตถึงเท่านี้ก่อนค่อยยุบ (กันไม่ให้เรียก summarizer ทุก turn)
 FOLD_TRIGGER  = RECENT_WINDOW * 2
 
+OPENING_INSTRUCTION = ("[เริ่ม session ใหม่ ทักทายนักเรียน แนะนำบทเรียนสั้นๆ "
+                       "แล้วเริ่มปูพื้นฐานหัวข้อแรก (ขั้น 1)]")
+
+DONE_NOTE = ("[นักเรียนทำคะแนนผ่านครบทุกวัตถุประสงค์หลักแล้ว — รอบถัดไปให้แจ้งนักเรียน"
+             "ด้วยน้ำเสียงตามคาแรกเตอร์ว่าเรียนจบบทนี้แล้ว จะออก (พิมพ์ quit) หรือถามอะไรต่อก็ได้]")
+
 
 def load_character(name: str) -> str:
     path = CHARACTERS_DIR / f"{name}.md"
@@ -79,6 +85,8 @@ Sub LO ที่ต้องสอนให้ครบ (ในวงเล็�
 - ถ้านักเรียนพิมพ์เรื่องนอกบทเรียน (บ่น / หงุดหงิด / คุยเล่น) ให้ตอบสั้นๆ ตามคาแรกเตอร์
   แล้วดึงกลับเข้าหัวข้อปัจจุบัน อย่าดึงเนื้อหาอื่นมาตอบให้หลุดทาง
 - ใช้เฉพาะข้อมูลใน [บริบทอ้างอิง] ที่แนบมา อย่าเดาเนื้อหาเอง ถ้าบริบทไม่พอให้ถามนักเรียนกลับ
+- ห้ามกุตัวเลข ข้อมูล หรือตารางผลการทดลองที่ไม่มีใน [บริบทอ้างอิง] — ถ้าไม่มีตัวอย่างให้สอนหลักการแทน
+- reply เป็นข้อความสนทนาปกติ พิมพ์แบบคุยกับนักเรียน ห้ามใช้ตาราง markdown / **ตัวหนา** / หัวข้อย่อยซับซ้อน
 - ห้ามบอกว่านักเรียนผ่านหรือไม่ผ่าน
 - ห้ามพูดถึง AI-Observer ต่อหน้านักเรียน
 
@@ -90,6 +98,7 @@ trigger Observer เมื่อนักเรียน:
 - สรุปความเข้าใจด้วยคำพูดตัวเองได้
 
 ถ้าได้รับ [OBSERVER_FEEDBACK: ...] ให้ใช้ข้อมูลนั้นปรับวิธีสอน แต่ห้ามบอกนักเรียน
+ถ้าได้รับ [นักเรียนทำคะแนนผ่านครบ...] ให้แจ้งนักเรียนว่าเรียนจบบทนี้แล้ว ออก (quit) หรือถามต่อได้
 
 output ต้องเป็น JSON เสมอ ห้ามมี markdown:
 {{
@@ -130,14 +139,98 @@ def summarize_history(client: OpenAI, messages: list, prev_summary: str | None,
 
 
 def parse_json(raw: str) -> dict:
+    """แปลง output ของ LLM เป็น dict
+
+    strict=False สำคัญมาก — Gemini มักใส่ newline/tab ตัวจริงในค่า string ของ JSON
+    ซึ่ง json.loads ปกติจะ reject ("Invalid control character") ทำให้ทั้งระบบพัง
+    """
     raw = raw.strip()
     if raw.startswith("```"):
         parts = raw.split("```")
-        raw = parts[1]
+        raw = parts[1] if len(parts) > 1 else raw[3:]
         if raw.startswith("json"):
             raw = raw[4:]
         raw = raw.strip()
-    return json.loads(raw)
+    return json.loads(raw, strict=False)
+
+
+def salvage_mentor(raw: str, default_lo: str | None) -> dict:
+    """กู้ field จาก output ที่ parse เป็น JSON ไม่ได้ — ดีกว่าโชว์ JSON ดิบให้นักเรียน"""
+    m = re.search(
+        r'"reply"\s*:\s*"(.*?)"\s*,\s*"(?:current_lo|trigger_observer|trigger_lo)"',
+        raw, re.S,
+    )
+    reply = (m.group(1).replace('\\"', '"').replace('\\n', '\n').strip()
+             if m else raw)
+    lo   = re.search(r'"current_lo"\s*:\s*"(s\d+)"', raw)
+    trig = re.search(r'"trigger_observer"\s*:\s*(true|false)', raw)
+    tlo  = re.findall(r'"(s\d+)"', raw.split("trigger_lo", 1)[1]) if "trigger_lo" in raw else []
+    return {
+        "reply":            reply,
+        "current_lo":        lo.group(1) if lo else default_lo,
+        "trigger_observer": (trig.group(1) == "true") if trig else False,
+        "trigger_lo":        tlo,
+    }
+
+
+def _sys_msg(static_system_prompt: str) -> dict:
+    """system message ของ Mentor พร้อม cache_control
+
+    Gemini implicit caching ผ่าน OpenRouter ไม่ทำงาน (ทดสอบแล้ว cached=0)
+    ต้องใส่ cache_control เอง — turn ที่ hit cache ถูกลง ~50% (prompt คงที่ ~2,300 tok)
+    """
+    return {
+        "role": "system",
+        "content": [{
+            "type": "text",
+            "text": static_system_prompt,
+            "cache_control": {"type": "ephemeral"},
+        }],
+    }
+
+
+def load_or_make_greeting(client: OpenAI, lesson_path: Path, character_name: str,
+                          static_system_prompt: str, mentor_extra: dict,
+                          tracker: CostTracker) -> str:
+    """คำทักทายเปิด session เหมือนกันทุกคนที่เรียน (บท × character) เดียวกัน
+    → เจนครั้งเดียว เก็บไฟล์ไว้ คนต่อไปอ่าน verbatim ไม่เสีย token
+
+    ถ้าแก้ objectives.json หรือไฟล์ character แล้วอยากให้เจนใหม่ ให้ลบโฟลเดอร์ greetings/
+    """
+    greet_file = lesson_path / "greetings" / f"{character_name}.txt"
+    if greet_file.exists() and greet_file.stat().st_size > 0:
+        return greet_file.read_text(encoding="utf-8")
+
+    resp = client.chat.completions.create(
+        model=MODEL_MENTOR,
+        messages=[
+            _sys_msg(static_system_prompt),
+            {"role": "user", "content": OPENING_INSTRUCTION},
+        ],
+        extra_body=mentor_extra,
+    )
+    raw = resp.choices[0].message.content
+    try:
+        msg = parse_json(raw).get("reply", raw)
+    except json.JSONDecodeError:
+        msg = salvage_mentor(raw, None)["reply"]
+
+    if resp.usage:
+        tracker.track_mentor(
+            resp.usage.prompt_tokens, resp.usage.completion_tokens,
+            mentor_msg=msg, student_msg="",
+        )
+
+    greet_file.parent.mkdir(parents=True, exist_ok=True)
+    greet_file.write_text(msg, encoding="utf-8")
+    return msg
+
+
+def all_core_passed(sub_los_list: list, hard_scores: dict) -> bool:
+    """นักเรียนผ่านครบทุก sub_lo ที่ tag = core (ถ้าไม่มี core เลย ใช้ทุกข้อ)"""
+    targets = [lo["id"] for lo in sub_los_list if lo.get("tag") == "core"] \
+        or [lo["id"] for lo in sub_los_list]
+    return bool(targets) and all(hard_scores.get(i) == 3 for i in targets)
 
 
 def select_option(label: str, options: list[str]) -> str:
@@ -196,9 +289,9 @@ def main(client: OpenAI):
     # ── system prompt ส่วน static (สร้างครั้งเดียว ไม่แก้อีกตลอด session) ──
     static_system_prompt = build_static_system_prompt(character_text, objectives)
 
-    # sticky-route ไป provider เดิม เพื่อรักษา implicit cache ของ Gemini ให้ warm
-    session_id   = re.sub(r"\s+", "-",
-                          f"mentor-{subject}-{lesson}-{character_name}-{tracker.session_start}")
+    # sticky-route ตาม (บท × character) ไม่ผูกกับเวลา/คน → นักเรียนที่เรียนบทเดียวกัน
+    # route ไป provider เดียวกัน ใช้ prompt cache ร่วมกันได้ (กองกลาง best-effort)
+    session_id   = re.sub(r"\s+", "-", f"mentor-{subject}-{lesson}-{character_name}")
     mentor_extra = {"session_id": session_id}
 
     # ── state ระดับ session ──
@@ -212,6 +305,8 @@ def main(client: OpenAI):
     chat_history     = []
     hard_scores      = {lo["id"]: None for lo in sub_los_list}
     pending_feedback = None
+    pending_note     = None   # ข้อความสั่ง Mentor รอบถัดไป (เช่น แจ้งเรียนจบ)
+    done_announced   = False  # แจ้ง "ผ่านครบทุกข้อ" ไปแล้วหรือยัง
     history_summary  = None   # rolling summary ของข้อความที่ถูกยุบไปแล้ว
     summary_covers   = 0      # จำนวน message แรกของ chat_history ที่ยุบเข้า summary แล้ว
     session_events   = []     # บันทึกย่อรายรอบ (ป้อนให้ soft eval ตอนจบ แทน transcript เต็ม)
@@ -221,32 +316,11 @@ def main(client: OpenAI):
     print(f"  พิมพ์ 'quit' เพื่อจบ session")
     print(f"{'=' * 55}\n")
 
-    # ── Mentor ทักทาย ──────────────────────────────────────
-    opening_resp = client.chat.completions.create(
-        model=MODEL_MENTOR,
-        messages=[
-            {"role": "system", "content": static_system_prompt},
-            {"role": "user",   "content": "[เริ่ม session ใหม่ ทักทายนักเรียน แนะนำบทเรียนสั้นๆ แล้วเริ่มปูพื้นฐานหัวข้อแรก (ขั้น 1)]"}
-        ],
-        extra_body=mentor_extra
+    # ── Mentor ทักทาย (เจนครั้งเดียวต่อ บท×character แล้วใช้ซ้ำทุกคน) ──
+    opening_msg = load_or_make_greeting(
+        client, lesson_path, character_name,
+        static_system_prompt, mentor_extra, tracker,
     )
-
-    opening_raw = opening_resp.choices[0].message.content
-    try:
-        opening_data = parse_json(opening_raw)
-        opening_msg  = opening_data.get("reply", opening_raw)
-    except json.JSONDecodeError:
-        opening_msg = opening_raw
-
-    # track ค่าคำทักทาย (student_msg = "" เพราะยังไม่มีนักเรียนพิมพ์)
-    if opening_resp.usage:
-        tracker.track_mentor(
-            opening_resp.usage.prompt_tokens,
-            opening_resp.usage.completion_tokens,
-            mentor_msg=opening_msg,
-            student_msg=""
-        )
-
     print(f"Mentor: {opening_msg}\n")
     chat_history.append({"role": "assistant", "content": opening_msg})
 
@@ -355,8 +429,8 @@ def main(client: OpenAI):
 
         recent = chat_history[summary_covers:]   # ข้อความล่าสุดที่ส่งแบบเต็ม
 
-        # ── สร้าง messages: [static system] + [summary] + [recent] + [last user] ──
-        messages = [{"role": "system", "content": static_system_prompt}]
+        # ── สร้าง messages: [static system+cache] + [summary] + [recent] + [last user] ──
+        messages = [_sys_msg(static_system_prompt)]
         if history_summary:
             messages.append({
                 "role": "system",
@@ -384,6 +458,9 @@ def main(client: OpenAI):
                 + last_content
             )
             pending_feedback = None
+        if pending_note:
+            last_content = pending_note + "\n\n" + last_content
+            pending_note = None
 
         messages.append({"role": "user", "content": last_content})
 
@@ -398,12 +475,9 @@ def main(client: OpenAI):
         try:
             mentor_data = parse_json(raw)
         except json.JSONDecodeError:
-            mentor_data = {
-                "reply":            raw,
-                "current_lo":       current_sub_lo["id"] if current_sub_lo else None,
-                "trigger_observer": False,
-                "trigger_lo":       [],
-            }
+            mentor_data = salvage_mentor(
+                raw, current_sub_lo["id"] if current_sub_lo else None
+            )
 
         reply        = mentor_data.get("reply", "")
         will_trigger = mentor_data.get("trigger_observer", False)
@@ -462,6 +536,12 @@ def main(client: OpenAI):
                 )
 
             pending_feedback = feedback
+
+            # นักเรียนผ่านครบทุกวัตถุประสงค์หลัก → สั่ง Mentor แจ้งรอบถัดไป (ครั้งเดียว)
+            if not done_announced and all_core_passed(sub_los_list, hard_scores):
+                done_announced = True
+                pending_note   = DONE_NOTE
+                print("  [🎉 นักเรียนผ่านครบทุกวัตถุประสงค์หลักแล้ว]")
 
         print()
 

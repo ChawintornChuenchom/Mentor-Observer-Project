@@ -1,4 +1,5 @@
 import json
+import re
 from openai import OpenAI
 from config import MODEL_OBSERVER
 
@@ -115,14 +116,23 @@ output เป็น JSON เท่านั้น ห้ามมี markdown:
 
 
 def parse_json(raw: str) -> dict:
+    """strict=False — LLM มักใส่ newline ตัวจริงในค่า string ของ JSON"""
     raw = raw.strip()
     if raw.startswith("```"):
         parts = raw.split("```")
-        raw = parts[1]
+        raw = parts[1] if len(parts) > 1 else raw[3:]
         if raw.startswith("json"):
             raw = raw[4:]
         raw = raw.strip()
-    return json.loads(raw)
+    return json.loads(raw, strict=False)
+
+
+def salvage_hard(raw: str) -> list:
+    """กู้คะแนน hard จาก output ที่ parse ไม่ได้ (คะแนนสำคัญ อย่าทิ้ง)"""
+    out = []
+    for lo_id, s in re.findall(r'"id"\s*:\s*"(s\d+)"\s*,\s*"s"\s*:\s*(\d+|null)', raw):
+        out.append({"id": lo_id, "s": None if s == "null" else int(s), "e": ""})
+    return out
 
 
 class Observer:
@@ -164,7 +174,9 @@ class Observer:
         try:
             return parse_json(raw)
         except json.JSONDecodeError:
-            return {"hard": [], "lock": [], "n": [f"parse error: {raw[:80]}"]}
+            hard = salvage_hard(raw)
+            return {"hard": hard, "lock": [],
+                    "n": [f"parse error (กู้ได้ {len(hard)} คะแนน)"]}
 
     def evaluate_soft(self, chat_history: list, history_summary: str | None = None,
                       session_events: list | None = None) -> dict:
