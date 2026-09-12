@@ -109,25 +109,53 @@ class CostTracker:
         remaining = self._remaining() or 0.0
 
         row = {
-            "timestamp":  datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "ment_mes":   mentor_msg,
-            "stu_mes":    student_msg,
-            "obs_score":  "",
-            "in_tok":     in_tok,
-            "cached_tok": cached,
-            "out_tok":    out_tok,
-            "cost":       round(spent, 8),
-            "price_left": round(remaining, 6),
+            "timestamp":   datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "ment_mes":    mentor_msg,
+            "stu_mes":     student_msg,
+            "obs_score":   "",
+            "in_tok":      in_tok,
+            "cached_tok":  cached,
+            "out_tok":     out_tok,
+            "cost":        round(spent, 8),
+            "obs_in_tok":  0,
+            "obs_out_tok": 0,
+            "obs_cost":    0.0,
+            "price_left":  round(remaining, 6),
         }
         self.chat_rows.append(row)
         return row
 
     def track_observer(self, usage, obs_score_summary: str,
                        row_ref: dict | None = None):
-        spent, *_ = self._spend("Observer", usage, PRICE_OBSERVER_IN, PRICE_OBSERVER_OUT)
+        """คิดเงิน Observer (Claude) แล้วบันทึกลง CSV จริง — เดิม cost ส่วนนี้หายไปหลัง print
+        ไม่ถูกเก็บที่ไหนถาวร ทำให้ยอดรวมใน log ต่ำกว่าที่จ่ายจริง"""
+        spent, in_tok, out_tok, _cached = self._spend(
+            "Observer", usage, PRICE_OBSERVER_IN, PRICE_OBSERVER_OUT
+        )
         self.observer_cost += spent
+
         if row_ref is not None:
-            row_ref["obs_score"] = obs_score_summary
+            # ผูกกับ turn ของ Mentor ที่ trigger — สะสมไว้เผื่อ trigger มากกว่า 1 รอบใน turn เดียว
+            row_ref["obs_score"]   = obs_score_summary
+            row_ref["obs_in_tok"]  = row_ref.get("obs_in_tok", 0) + in_tok
+            row_ref["obs_out_tok"] = row_ref.get("obs_out_tok", 0) + out_tok
+            row_ref["obs_cost"]    = round(row_ref.get("obs_cost", 0.0) + spent, 8)
+        else:
+            # ไม่ผูกกับ turn ไหน (เช่น soft-skill eval ตอนจบ session) → ให้เป็นแถวของตัวเอง
+            self.chat_rows.append({
+                "timestamp":   datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "ment_mes":    "",
+                "stu_mes":     f"[observer: {obs_score_summary}]",
+                "obs_score":   obs_score_summary,
+                "in_tok":      0,
+                "cached_tok":  0,
+                "out_tok":     0,
+                "cost":        0.0,
+                "obs_in_tok":  in_tok,
+                "obs_out_tok": out_tok,
+                "obs_cost":    round(spent, 8),
+                "price_left":  round(self._remaining() or 0.0, 6),
+            })
 
     def save_chat_csv(self, subject: str, lesson: str, character: str):
         if not self.chat_rows:
@@ -139,7 +167,9 @@ class CostTracker:
 
         fieldnames = [
             "timestamp", "ment_mes", "stu_mes", "obs_score",
-            "in_tok", "cached_tok", "out_tok", "cost", "price_left"
+            "in_tok", "cached_tok", "out_tok", "cost",
+            "obs_in_tok", "obs_out_tok", "obs_cost",
+            "price_left"
         ]
 
         with open(filename, "w", newline="", encoding="utf-8-sig") as f:

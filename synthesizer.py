@@ -4,6 +4,8 @@ from openai import OpenAI
 from config import MODEL_SYNTHESIZER
 from rag import RAG
 
+MAX_SUB_LOS = 5   # เพดานตายตัว — ทุกบทเรียนต้องไม่เกินนี้ ไม่ว่าเนื้อหาจะยาว/ซับซ้อนแค่ไหน
+
 SYNTHESIZER_PROMPT = """คุณคือระบบสังเคราะห์วัตถุประสงค์การเรียนรู้จากเนื้อหาบทเรียน
 
 อ่านเนื้อหาที่ให้มาแล้วสร้าง output ต่อไปนี้:
@@ -16,9 +18,10 @@ SYNTHESIZER_PROMPT = """คุณคือระบบสังเคราะ�
 - ใช้คำกริยาที่วัดได้: อธิบาย แก้ แยก วิเคราะห์ ยกตัวอย่าง
 - ห้ามใช้: เข้าใจ รู้ เรียนรู้
 - tag: core = ต้องผ่านทุกข้อ, supporting = เสริม
-- จำนวน sub_los ให้เหมาะกับความยาว/ความซับซ้อนของเนื้อหาจริง **ไม่ใช่ตัวเลขตายตัว**
-  เนื้อหาสั้น/หัวข้อเดียว (เช่น สรุปย่อไม่กี่หน้า) → 3-5 ข้อก็พอ · เนื้อหายาวหลายหัวข้อ → ได้ถึง 8-10 ข้อ
-  ⚠️ ห้ามฝืนแตกหัวข้อให้ครบจำนวนใดๆ ถ้าเนื้อหาไม่พอ — sub_lo ซ้ำซ้อนแย่กว่ามีน้อยข้อ
+- สร้าง sub_los **ไม่เกิน 5 ข้อเด็ดขาด ไม่ว่าเนื้อหาจะยาวหรือซับซ้อนแค่ไหน** (เนื้อหาน้อยจะได้แค่ 2-3 ข้อก็ได้)
+  ถ้าเนื้อหามีหัวข้อย่อยมากกว่า 5 เรื่อง ให้ยุบรวมหัวข้อที่ใกล้เคียง/ต่อเนื่องกันเข้าเป็นข้อเดียว
+  แทนที่จะแตกเป็นหลายข้อ — 1 ข้อที่ครอบคลุมกว้างดีกว่าแตกเป็นหลาย sub_lo ที่แคบ
+  ⚠️ ห้ามฝืนแตกหัวข้อให้ครบจำนวนใดๆ ถ้าเนื้อหาน้อย — 2 ข้อที่ดีดีกว่า 5 ข้อที่ซ้ำซ้อน
 - รวมหัวข้อที่ใกล้เคียงกันเป็นข้อเดียว อย่าแตกย่อยจนซ้ำซ้อน
   (เช่น "ตั้งสมมติฐาน" + "ตรวจสอบสมมติฐาน" + "สรุปผลเทียบสมมติฐาน" = รวมเป็น 1-2 ข้อ)
 - ⚠️ ระวังวัตถุประสงค์ "คู่ขนาน" — ถ้าเจอ sub_lo 2 ข้อที่ใช้ทักษะ/เกณฑ์เดียวกัน แต่แยกไปใช้กับ
@@ -58,24 +61,25 @@ output เป็น JSON เท่านั้น ห้ามมี markdown:
   "missing_coverage": ["เหตุผล..."]
 }"""
 
-# ผ่าน pass เดียว โมเดลมักหลุดกฎ "อย่าแยกคู่ขนาน" เพราะแข่งกับงานอื่นในพรอมต์เดียวกัน
-# (ทดสอบแล้ว: ให้ตัวอย่างชัดเจนแล้วยังแยกคู่ใหม่ที่ไม่ได้ยกตัวอย่างไว้) — เลยแยกเป็น pass 2
-# ที่ทำงานเดียวคือหาคู่ซ้ำซ้อนแล้วรวม ไม่ต้องแข่งกับการสร้างเนื้อหาอื่น
-CONSOLIDATE_PROMPT = """คุณคือระบบตรวจสอบวัตถุประสงค์การเรียนรู้ (sub_lo) ที่ซ้ำซ้อนกัน
+# ผ่าน pass เดียว โมเดลมักหลุดกฎเรื่องจำนวน/คู่ขนาน เพราะแข่งกับงานอื่นในพรอมต์เดียวกัน
+# (ทดสอบแล้ว: ให้ตัวอย่างชัดเจนแล้วยังแยกคู่ใหม่ที่ไม่ได้ยกตัวอย่างไว้ และยังเกินจำนวนที่ขอ)
+# เลยแยกเป็น pass 2 ที่ทำงานเดียวคือ "รวบให้เหลือไม่เกิน MAX_SUB_LOS ข้อ" ไม่ต้องแข่งกับงานอื่น
+CONSOLIDATE_PROMPT = f"""คุณคือระบบรวบรัดวัตถุประสงค์การเรียนรู้ (sub_lo) ให้เหลือไม่เกิน {MAX_SUB_LOS} ข้อ
 
-หน้าที่เดียวของคุณ: ดู sub_lo ทั้งหมดที่ให้มา แล้วหา "คู่ขนาน" — sub_lo สองข้อขึ้นไปที่
-- ใช้ทักษะ/เกณฑ์เดียวกัน แต่แยกไปใช้กับ 2 กลุ่มที่เป็นคู่ตรงข้ามกัน
-  (เช่น "อธิบาย X ของคำเป็น" แยกจาก "อธิบาย X ของคำตาย")
-- หรือเนื้อหาซ้ำกันเกือบทั้งหมด แค่ถ้อยคำต่างกัน
+หน้าที่ของคุณ:
+1. หา "คู่ขนาน" ก่อน — sub_lo สองข้อขึ้นไปที่ใช้ทักษะ/เกณฑ์เดียวกัน แต่แยกไปใช้กับ 2 กลุ่มที่เป็นคู่ตรงข้ามกัน
+   (เช่น "อธิบาย X ของคำเป็น" แยกจาก "อธิบาย X ของคำตาย") หรือเนื้อหาซ้ำกันเกือบทั้งหมด → รวมเป็นข้อเดียว
+   ที่จำแนก/เปรียบเทียบทั้งสองฝั่งพร้อมกัน
+2. รวมคู่ขนานแล้วนับดูว่าเหลือกี่ข้อ — ถ้ายังเกิน {MAX_SUB_LOS} ข้อ ให้รวมหัวข้อที่เนื้อหาใกล้เคียง/
+   ต่อเนื่องกันมากที่สุดเพิ่มเติม (เลือกคู่ที่สัมพันธ์กันมากสุดก่อน) จนกว่าจะเหลือ **ไม่เกิน {MAX_SUB_LOS} ข้อ**
+   นี่คือเป้าหมายที่ต้องทำให้ถึง ไม่ใช่ทางเลือก
+3. ห้ามรวมข้อที่เนื้อหาไม่เกี่ยวข้องกันเลยแบบขอไปที — เลือกรวมเฉพาะคู่ที่สัมพันธ์กันจริง
+4. ถ้ามี ≤{MAX_SUB_LOS} ข้ออยู่แล้วและไม่มีคู่ขนาน ให้ตอบ merged_groups เป็น [] ว่างเปล่า
 
-ถ้าเจอคู่แบบนี้ ให้รวมเป็น sub_lo ข้อเดียวที่จำแนก/เปรียบเทียบทั้งสองฝั่งพร้อมกัน
-ห้ามรวมข้อที่เนื้อหาต่างกันจริงๆ (คนละทักษะ คนละเรื่อง) — รวมเฉพาะที่ซ้ำซ้อน/คู่ขนานจริงเท่านั้น
-ถ้าไม่เจอคู่ไหนที่ควรรวมเลย ให้ตอบ merged_groups เป็น [] ว่างเปล่า
-
-output เป็น JSON เท่านั้น ห้ามมี markdown:
-{"merged_groups": [
-  {"from_ids": ["s2", "s3"], "new_statement": "นักเรียนสามารถ...", "tag": "core", "type": "conceptual"}
-]}"""
+output เป็น JSON เท่านั้น ห้ามมี markdown (from_ids รวมได้มากกว่า 2 ข้อในกลุ่มเดียว):
+{{"merged_groups": [
+  {{"from_ids": ["s2", "s3"], "new_statement": "นักเรียนสามารถ...", "tag": "core", "type": "conceptual"}}
+]}}"""
 
 
 class Synthesizer:
@@ -86,46 +90,43 @@ class Synthesizer:
         self.cost_tracker = cost_tracker
 
     def _consolidate(self, objectives: dict) -> dict:
-        """pass 2: หา sub_lo ที่ซ้ำซ้อน/เป็นคู่ขนาน แล้วรวมเป็นข้อเดียว (deterministic — ไม่พึ่งว่า
-        pass 1 จะทำตามกฎ 'อย่าแยกคู่ขนาน' เองได้ครบ)"""
+        """pass 2: หาคู่ขนาน/ซ้ำซ้อน แล้วรวมให้เหลือไม่เกิน MAX_SUB_LOS ข้อ (deterministic —
+        ไม่พึ่งว่า pass 1 จะทำตามกฎเรื่องจำนวน/คู่ขนานเองได้ครบ)"""
         subs = objectives.get("sub_los", [])
         if len(subs) < 2:
             return objectives
 
         listing = "\n".join(f"{lo['id']}: {lo['statement']}" for lo in subs)
+        prompt_user = f"ตอนนี้มี {len(subs)} ข้อ ต้องเหลือไม่เกิน {MAX_SUB_LOS} ข้อ:\n\n{listing}"
 
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": CONSOLIDATE_PROMPT},
-                    {"role": "user",   "content": listing},
+                    {"role": "user",   "content": prompt_user},
                 ]
             )
         except Exception as e:
             print(f"  ⚠️  ตรวจสอบความซ้ำซ้อนไม่สำเร็จ ({e}) ข้ามขั้นนี้")
-            return objectives
+            groups = []
+        else:
+            if self.cost_tracker is not None and getattr(response, "usage", None):
+                self.cost_tracker.track_synthesizer(response.usage)
 
-        if self.cost_tracker is not None and getattr(response, "usage", None):
-            self.cost_tracker.track_synthesizer(response.usage)
+            raw = response.choices[0].message.content.strip()
+            if raw.startswith("```"):
+                parts = raw.split("```")
+                raw   = parts[1] if len(parts) > 1 else raw[3:]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+                raw = raw.strip()
 
-        raw = response.choices[0].message.content.strip()
-        if raw.startswith("```"):
-            parts = raw.split("```")
-            raw   = parts[1] if len(parts) > 1 else raw[3:]
-            if raw.startswith("json"):
-                raw = raw[4:]
-            raw = raw.strip()
-
-        try:
-            groups = json.loads(raw, strict=False).get("merged_groups", [])
-        except json.JSONDecodeError:
-            print("  ⚠️  parse ผลตรวจความซ้ำซ้อนไม่ได้ ข้ามขั้นนี้")
-            return objectives
-
-        if not groups:
-            print("  ไม่พบ sub_lo ที่ซ้ำซ้อน")
-            return objectives
+            try:
+                groups = json.loads(raw, strict=False).get("merged_groups", [])
+            except json.JSONDecodeError:
+                print("  ⚠️  parse ผลตรวจความซ้ำซ้อนไม่ได้ ข้ามขั้นนี้")
+                groups = []
 
         by_id     = {lo["id"]: lo for lo in subs}
         order     = {lo["id"]: i for i, lo in enumerate(subs)}
@@ -155,8 +156,28 @@ class Synthesizer:
             if lo["id"] not in merged_id:
                 new_subs.append(lo)
 
-        # เรียงกลับตามลำดับเดิม (ใช้ตำแหน่ง id แรกสุดของแต่ละก้อน) แล้วเลขใหม่ s1..sN
+        if not groups:
+            print("  ไม่พบ sub_lo ที่ซ้ำซ้อน" if len(subs) <= MAX_SUB_LOS
+                  else "  ⚠️  โมเดลไม่ได้รวมให้ตามที่ขอ จะรวมแบบ mechanical แทน")
+
+        # เรียงกลับตามลำดับเดิม (ใช้ตำแหน่ง id แรกสุดของแต่ละก้อน)
         new_subs.sort(key=lambda lo: order.get(lo["id"], len(subs)))
+
+        # การันตีเพดาน: ถ้า pass 2 (LLM) รวมไม่พอ ให้รวมแบบ mechanical ต่อจนกว่าจะไม่เกิน
+        # MAX_SUB_LOS จริงๆ — กันกรณีโมเดลไม่ทำตามจำนวนที่ขอ (เจอมาแล้วว่าไว้ใจอย่างเดียวไม่พอ)
+        while len(new_subs) > MAX_SUB_LOS:
+            a, b = new_subs[-2], new_subs[-1]
+            new_subs[-2:] = [{
+                "id":              a["id"],
+                "statement":       f"{a['statement']} รวมถึง{b['statement']}",
+                "tag":             "core" if (a.get("tag") == "core" or b.get("tag") == "core")
+                                    else "supporting",
+                "type":            a.get("type", "conceptual"),
+                "evidence_chunks": sorted(set(
+                    a.get("evidence_chunks", []) + b.get("evidence_chunks", [])
+                )),
+            }]
+
         for i, lo in enumerate(new_subs, start=1):
             lo["id"] = f"s{i}"
 

@@ -5,6 +5,10 @@ load_dotenv()
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
+# ปิดไว้ชั่วคราวเพื่อเทียบ token/cost แบบมี-ไม่มี prompt cache ได้ตรงๆ
+# (set MENTOR_USE_CACHE=false ใน env ก่อนรัน mentor.py — ไม่ต้องแก้โค้ด)
+MENTOR_USE_CACHE  = os.getenv("MENTOR_USE_CACHE", "true").strip().lower() not in ("false", "0", "no")
+
 MODEL_MENTOR      = os.getenv("MODEL_MENTOR",      "google/gemini-2.5-flash")
 MODEL_OBSERVER    = os.getenv("MODEL_OBSERVER",    "anthropic/claude-haiku-4.5")
 MODEL_SYNTHESIZER = os.getenv("MODEL_SYNTHESIZER", "google/gemini-2.5-flash")
