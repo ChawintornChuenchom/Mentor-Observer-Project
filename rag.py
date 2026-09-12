@@ -70,6 +70,7 @@ def ocr_pdf(file_path: str, client: OpenAI, dpi: int = 200, cost_tracker=None) -
     pages = []
     n_pages       = len(doc)
     in_tok, out_tok = 0, 0
+    cost_total = 0.0
 
     for i, page in enumerate(doc):
         pix       = page.get_pixmap(dpi=dpi)
@@ -81,15 +82,72 @@ def ocr_pdf(file_path: str, client: OpenAI, dpi: int = 200, cost_tracker=None) -
 
         usage = getattr(response, "usage", None)
         if usage:
-            in_tok  += getattr(usage, "prompt_tokens", 0) or 0
-            out_tok += getattr(usage, "completion_tokens", 0) or 0
+            in_tok     += getattr(usage, "prompt_tokens", 0) or 0
+            out_tok    += getattr(usage, "completion_tokens", 0) or 0
+            cost_total += getattr(usage, "cost", 0) or 0
 
     doc.close()
 
     if cost_tracker is not None and (in_tok or out_tok):
-        cost_tracker.track_ocr(in_tok, out_tok)
+        cost_tracker.track_ocr(in_tok, out_tok, cost=cost_total or None)
 
     return "\n\n".join(pages)
+
+
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".gif"}
+
+
+def images_to_txt(lesson_path, client: OpenAI, dpi: int = 200, cost_tracker=None):
+    """OCR ไฟล์ภาพทุกไฟล์ในโฟลเดอร์ (เรียงตามชื่อไฟล์) รวมเป็น images.txt ไฟล์เดียว
+
+    ข้ามถ้ามี images.txt อยู่แล้ว — อยากเพิ่ม/แก้ภาพให้ลบ images.txt แล้วรันใหม่
+    คืน Path ของ images.txt หรือ None ถ้าไม่มีภาพ
+    """
+    lesson_path = Path(lesson_path)
+    imgs = sorted(
+        f for f in lesson_path.iterdir()
+        if f.is_file() and f.suffix.lower() in IMAGE_EXTS
+    )
+    if not imgs:
+        return None
+
+    if not HAS_PDF:
+        raise ImportError("ติดตั้ง pymupdf ก่อน: pip install pymupdf")
+
+    out_path = lesson_path / "images.txt"
+    if out_path.exists() and out_path.stat().st_size > 0:
+        print(f"  ข้าม {len(imgs)} ภาพ (มี images.txt อยู่แล้ว)")
+        return out_path
+
+    print(f"  OCR {len(imgs)} ภาพ → images.txt")
+    parts = []
+    in_tok, out_tok = 0, 0
+    cost_total = 0.0
+
+    for i, img in enumerate(imgs):
+        doc = fitz.open(img)                      # pymupdf เปิดไฟล์ภาพเป็น doc 1 หน้า
+        b64 = base64.b64encode(doc[0].get_pixmap(dpi=dpi).tobytes("png")).decode("utf-8")
+        doc.close()
+
+        response = _ocr_page(client, b64)
+        parts.append(response.choices[0].message.content or "")
+        print(f"    {i + 1}/{len(imgs)}: {img.name}")
+
+        usage = getattr(response, "usage", None)
+        if usage:
+            in_tok     += getattr(usage, "prompt_tokens", 0) or 0
+            out_tok    += getattr(usage, "completion_tokens", 0) or 0
+            cost_total += getattr(usage, "cost", 0) or 0
+
+    if cost_tracker is not None and (in_tok or out_tok):
+        cost_tracker.track_ocr(in_tok, out_tok, cost=cost_total or None)
+
+    text = "\n\n".join(parts)
+    out_path.write_text(text, encoding="utf-8")
+    print(f"    เขียน {len(text)} ตัวอักษร")
+    if not text.strip():
+        print("    ⚠️  OCR ไม่ได้ข้อความจากภาพ")
+    return out_path
 
 
 def pdf_to_txt(lesson_path, client: OpenAI, dpi: int = 200, cost_tracker=None) -> list[Path]:

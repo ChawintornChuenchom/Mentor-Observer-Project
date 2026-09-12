@@ -72,9 +72,14 @@ Sub LO ที่ต้องสอนให้ครบ (ในวงเล็�
 
 3. Socratic — พอมีพื้นแล้ว ค่อยถามให้วิเคราะห์ / เปรียบเทียบ / ประยุกต์ / อธิบายเหตุผล
    ช่วงนี้ไม่เฉลยคำตอบของคำถามวิเคราะห์ตรงๆ ให้ค่อยๆ นำด้วยคำถาม
-   ถ้านักเรียนตอบสั้นหรือไม่มีเหตุผล ให้ถามกลับ "ทำไมถึงคิดแบบนั้น?"
+   - ตอบสั้นหรือไม่มีเหตุผล → ถามกลับ "ทำไมถึงคิดแบบนั้น?"
+   - ตอบถูก/ครบ → ยืนยันสั้นๆ **แล้วถามต่อทันทีในประโยคเดียวกัน** (เจาะลึกขึ้น / ขอตัวอย่างใหม่ /
+     เชื่อมกับเรื่องถัดไป) ⚠️ ห้ามจบด้วยประโยคยืนยันเฉยๆ แล้วเงียบรอนักเรียน
+     ตัวอย่างผิด: "ถูกต้อง คำตายในมาตรา ก กา จะประสมกับสระเสียงสั้น นั่นคือคุณสมบัติของมัน" (จบดื้อๆ)
+     ตัวอย่างถูก: "ถูกต้อง! คำตายประสมสระเสียงสั้น ทีนี้ลองยกตัวอย่างคำตาย 2 คำที่ใช้บ่อยในชีวิตประจำวันดูสิ"
 
-4. สรุปปิดหัวข้อ — ให้นักเรียนสรุปด้วยคำพูดตัวเองก่อนไปหัวข้อถัดไป (ห้ามสรุปแทนนักเรียน)
+4. สรุปปิดหัวข้อ — ให้นักเรียนสรุปด้วยคำพูดตัวเองก่อน (ห้ามสรุปแทน)
+   พอนักเรียนสรุปจบ → Mentor พาเข้าหัวข้อถัดไปเองทันที (เริ่มขั้น 1 ใหม่) ไม่ต้องรอนักเรียนถาม
 
 หลักคิด: Socratic = ชวนคิดต่อยอด *หลัง* นักเรียนมีพื้นฐานแล้ว ไม่ใช่การกั๊กความรู้พื้นฐานไว้ให้ทาย
 ประเมินเองว่านักเรียนอยู่ขั้นไหน: ถ้าเพิ่งเริ่มหัวข้อ / บอกว่าไม่รู้ / ไม่เคยเรียนมาก่อน → กลับไปขั้น 1
@@ -86,6 +91,17 @@ Sub LO ที่ต้องสอนให้ครบ (ในวงเล็�
   แล้วดึงกลับเข้าหัวข้อปัจจุบัน อย่าดึงเนื้อหาอื่นมาตอบให้หลุดทาง
 - ใช้เฉพาะข้อมูลใน [บริบทอ้างอิง] ที่แนบมา อย่าเดาเนื้อหาเอง ถ้าบริบทไม่พอให้ถามนักเรียนกลับ
 - ห้ามกุตัวเลข ข้อมูล หรือตารางผลการทดลองที่ไม่มีใน [บริบทอ้างอิง] — ถ้าไม่มีตัวอย่างให้สอนหลักการแทน
+- ทุก reply ต้องจบด้วยการพาไปข้างหน้า: คำถามต่อยอดหัวข้อปัจจุบัน หรือเปลี่ยนไปหัวข้อถัดไปแล้วเริ่มปูพื้นฐาน
+  ห้ามจบแบบลอยๆ / ห้ามถามว่า "อยากเรียนอะไรต่อ" / ห้ามรอให้นักเรียนถามเองว่าทำอะไรต่อ
+- ก่อนถามคำถามใหม่หรือตัดสินว่าคำตอบไม่ถูก/ไม่แม่นยำ ให้เช็ค [นักเรียนเคยตอบอะไรไปแล้วในหัวข้อนี้]
+  (ถ้ามีแนบมา) ก่อนเสมอ — ถ้าเคยตอบประเด็นนั้นแล้ว (แม้พิมพ์ไม่ชัด/สะกดผิด) ให้อ้างอิงคำตอบเดิม
+  ห้ามถามซ้ำเหมือนเป็นเรื่องใหม่
+- เวลาบอกว่าคำตอบไม่ถูก/ไม่แม่นยำ ต้องระบุเจาะจงว่าผิด/ขาดตรงไหน ห้ามใช้คำกว้างๆ ลอยๆ
+  เช่น "ยังไม่แม่นยำนัก" โดยไม่บอกจุดที่ต้องแก้ — ถ้าจริงๆ แล้วคำตอบถูก ให้ยอมรับว่าถูก
+- ข้อความนักเรียนอาจพิมพ์เร็ว สะกดผิด ไม่มีวรรค — ตีความเจตนาอย่างใจกว้างก่อนตัดสินว่าผิด
+  ถ้าอ่านแล้วไม่แน่ใจว่านักเรียนหมายถึงอะไร ให้ถามทวนสั้นๆ แทนที่จะฟันธงว่าไม่แม่นยำ
+- ถ้า LO เป็นแบบ "ระบุ / แจกแจง" (ขั้นตอน, ประเภท, องค์ประกอบ) ให้นักเรียนตอบครบทั้งชุดในคราวเดียว
+  แล้วค่อยเจาะถามทีละจุด — อย่าถามทีละข้อจนหลักฐานกระจายหลาย turn
 - reply เป็นข้อความสนทนาปกติ พิมพ์แบบคุยกับนักเรียน ห้ามใช้ตาราง markdown / **ตัวหนา** / หัวข้อย่อยซับซ้อน
 - ห้ามบอกว่านักเรียนผ่านหรือไม่ผ่าน
 - ห้ามพูดถึง AI-Observer ต่อหน้านักเรียน
@@ -99,6 +115,9 @@ trigger Observer เมื่อนักเรียน:
 
 ถ้าได้รับ [OBSERVER_FEEDBACK: ...] ให้ใช้ข้อมูลนั้นปรับวิธีสอน แต่ห้ามบอกนักเรียน
 ถ้าได้รับ [นักเรียนทำคะแนนผ่านครบ...] ให้แจ้งนักเรียนว่าเรียนจบบทนี้แล้ว ออก (quit) หรือถามต่อได้
+
+⚠️ เช็คก่อนส่งคำตอบทุกครั้ง: "reply" นี้ลงท้ายด้วยคำถามหรือการพาไปหัวข้อถัดไปหรือยัง?
+ถ้า reply จบด้วยประโยคบอกเล่า/ยืนยันเฉยๆ (ไม่มี "?" และไม่ได้เปลี่ยนหัวข้อ) = ผิด ให้แก้ก่อนตอบ
 
 output ต้องเป็น JSON เสมอ ห้ามมี markdown:
 {{
@@ -131,10 +150,7 @@ def summarize_history(client: OpenAI, messages: list, prev_summary: str | None,
         ]
     )
     if tracker is not None and getattr(resp, "usage", None):
-        tracker.track_synthesizer(
-            resp.usage.prompt_tokens or 0,
-            resp.usage.completion_tokens or 0
-        )
+        tracker.track_synthesizer(resp.usage)
     return resp.choices[0].message.content.strip()
 
 
@@ -176,15 +192,17 @@ def salvage_mentor(raw: str, default_lo: str | None) -> dict:
 def _sys_msg(static_system_prompt: str) -> dict:
     """system message ของ Mentor พร้อม cache_control
 
-    Gemini implicit caching ผ่าน OpenRouter ไม่ทำงาน (ทดสอบแล้ว cached=0)
-    ต้องใส่ cache_control เอง — turn ที่ hit cache ถูกลง ~50% (prompt คงที่ ~2,300 tok)
+    - Gemini implicit caching ผ่าน OpenRouter ไม่ทำงาน (ทดสอบแล้ว cached=0) ต้องใส่ cache_control เอง
+    - turn ที่ hit cache ถูกลง ~50% (prompt คงที่ ~2,300 tok)
+    - ttl 1h: cache อยู่ 1 ชม. (default 5 นาที) → นักเรียนที่เรียนบทเดียวกันภายใน 1 ชม.
+      ใช้ cache ร่วมกันได้ (write แพงขึ้น ~2x แต่ write เกิดแค่ตอน cache เย็น)
     """
     return {
         "role": "system",
         "content": [{
             "type": "text",
             "text": static_system_prompt,
-            "cache_control": {"type": "ephemeral"},
+            "cache_control": {"type": "ephemeral", "ttl": "1h"},
         }],
     }
 
@@ -216,10 +234,7 @@ def load_or_make_greeting(client: OpenAI, lesson_path: Path, character_name: str
         msg = salvage_mentor(raw, None)["reply"]
 
     if resp.usage:
-        tracker.track_mentor(
-            resp.usage.prompt_tokens, resp.usage.completion_tokens,
-            mentor_msg=msg, student_msg="",
-        )
+        tracker.track_mentor(resp.usage, mentor_msg=msg, student_msg="")
 
     greet_file.parent.mkdir(parents=True, exist_ok=True)
     greet_file.write_text(msg, encoding="utf-8")
@@ -310,6 +325,9 @@ def main(client: OpenAI):
     history_summary  = None   # rolling summary ของข้อความที่ถูกยุบไปแล้ว
     summary_covers   = 0      # จำนวน message แรกของ chat_history ที่ยุบเข้า summary แล้ว
     session_events   = []     # บันทึกย่อรายรอบ (ป้อนให้ soft eval ตอนจบ แทน transcript เต็ม)
+    lo_answers: dict[str, list[str]] = {}   # lo_id -> ข้อความนักเรียนทั้งหมดที่ตอบตอนอยู่หัวข้อนั้น
+                                             # (กันถามซ้ำ/ตัดสินคำตอบผิด — inject สดทุก turn แทนที่จะ
+                                             #  หวังให้ Mentor "จำ" เองจาก raw history)
 
     print(f"\n{'=' * 55}")
     print(f"  {character_name} | {subject} / {lesson}")
@@ -335,11 +353,7 @@ def main(client: OpenAI):
             )
 
             if hasattr(observer, '_last_usage') and observer._last_usage:
-                tracker.track_observer(
-                    observer._last_usage.prompt_tokens,
-                    observer._last_usage.completion_tokens,
-                    "soft_skill_eval"
-                )
+                tracker.track_observer(observer._last_usage, "soft_skill_eval")
 
             print(f"\n{'=' * 55}")
             print(f"  สรุปผลการเรียน — {character_name}")
@@ -408,6 +422,7 @@ def main(client: OpenAI):
         # ── RAG: ผสม statement ของหัวข้อปัจจุบันเข้ากับสิ่งที่นักเรียนพิมพ์ ──
         # กันกรณีนักเรียนพิมพ์เรื่องนอกเนื้อหา แล้วได้ context ที่ไม่เกี่ยวเลย
         if current_sub_lo:
+            lo_answers.setdefault(current_sub_lo["id"], []).append(user_input)
             rag_query = f"{current_sub_lo['statement']} {user_input}"
         else:
             rag_query = user_input
@@ -442,10 +457,21 @@ def main(client: OpenAI):
         # ข้อความล่าสุด: แนบหัวข้อปัจจุบัน + RAG context ท้ายสุด (ส่วนที่เปลี่ยนทุกเทิร์น)
         lo_marker = ""
         if current_sub_lo:
+            # ดึงคำตอบเดิมของนักเรียนในหัวข้อนี้มาแปะสดๆ ทุก turn (ไม่รวมข้อความล่าสุด ซึ่งอยู่ท้าย
+            # last_content อยู่แล้ว) — กันไม่ให้ Mentor ต้องพึ่งการ "จำ" เอง แล้วถามซ้ำ/ตัดสินคำตอบผิด
+            prior_answers = lo_answers.get(current_sub_lo["id"], [])[:-1]
+            answered_block = ""
+            if prior_answers:
+                bullets = "\n".join(f'  - "{a}"' for a in prior_answers[-6:])
+                answered_block = (
+                    "[นักเรียนเคยตอบอะไรไปแล้วในหัวข้อนี้ — เช็คตรงนี้ก่อนถามซ้ำหรือบอกว่าผิด]\n"
+                    f"{bullets}\n"
+                )
             lo_marker = (
                 f"[หัวข้อที่กำลังสอน: {current_sub_lo['id']} "
                 f"({current_sub_lo.get('type', 'conceptual')}) — "
                 f"{current_sub_lo['statement']}]\n"
+                f"{answered_block}"
             )
         last_content = (
             f"{lo_marker}"
@@ -493,10 +519,7 @@ def main(client: OpenAI):
         current_row = None
         if resp.usage:
             current_row = tracker.track_mentor(
-                resp.usage.prompt_tokens,
-                resp.usage.completion_tokens,
-                mentor_msg=reply,
-                student_msg=user_input
+                resp.usage, mentor_msg=reply, student_msg=user_input
             )
 
         chat_history.append({"role": "assistant", "content": reply})
@@ -505,7 +528,11 @@ def main(client: OpenAI):
         # ── Observer ──
         if will_trigger and trigger_lo:
             print(f"\n  [🔍 Observer → {trigger_lo}]")
-            feedback    = observer.evaluate_hard(chat_history, trigger_lo)
+            feedback = observer.evaluate_hard(
+                chat_history, trigger_lo,
+                history_summary=history_summary,
+                prior_scores={lo: hard_scores.get(lo) for lo in trigger_lo},
+            )
             obs_summary = ""
 
             turn_hard = {}
@@ -513,12 +540,22 @@ def main(client: OpenAI):
                 lo_id    = item.get("id")
                 score    = item.get("s")
                 evidence = item.get("e", "")
+
+                held = False
                 if lo_id in hard_scores and score is not None:
-                    hard_scores[lo_id] = score
+                    old = hard_scores[lo_id]
+                    # ขึ้นได้เสมอ · ลงได้เฉพาะเจอความเข้าใจผิด (score 0) · ไม่งั้นคงคะแนนเดิม
+                    held = old is not None and score < old and score != 0
+                    if not held:
+                        hard_scores[lo_id] = score
+                    score = hard_scores[lo_id]          # คะแนนที่ใช้จริงหลัง guard
                     turn_hard[lo_id] = score
+                    item["s"] = score                   # ส่งคะแนนที่ guard แล้วให้ Mentor
+
                 obs_summary += f"{lo_id}={score} "
+                mark   = " (คงคะแนนเดิม)" if held else ""
                 status = "✅" if score == 3 else "❌" if score is not None else "⬜"
-                print(f"  [{status} Hard {lo_id} = {score}/3 | {evidence}]")
+                print(f"  [{status} Hard {lo_id} = {score}/3{mark} | {evidence}]")
             if turn_hard:
                 event["hard"] = turn_hard
 
@@ -529,10 +566,7 @@ def main(client: OpenAI):
             # track Observer cost
             if hasattr(observer, '_last_usage') and observer._last_usage:
                 tracker.track_observer(
-                    observer._last_usage.prompt_tokens,
-                    observer._last_usage.completion_tokens,
-                    obs_summary.strip(),
-                    row_ref=current_row
+                    observer._last_usage, obs_summary.strip(), row_ref=current_row
                 )
 
             pending_feedback = feedback

@@ -3,7 +3,7 @@ from pathlib import Path
 from tkinter import Tk, filedialog
 from openai import OpenAI
 from config import OPENROUTER_API_KEY
-from rag import RAG, pdf_to_txt
+from rag import RAG, pdf_to_txt, images_to_txt
 from synthesizer import Synthesizer
 from cost_tracker import CostTracker
 
@@ -23,10 +23,12 @@ def pick_files() -> list[Path]:
     root.attributes("-topmost", True)
 
     paths = filedialog.askopenfilenames(
-        title="เลือกไฟล์บทเรียน",
+        title="เลือกไฟล์บทเรียน (เลือกได้หลายไฟล์)",
         filetypes=[
-            ("ไฟล์บทเรียน", "*.pdf *.docx *.pptx *.txt *.md"),
+            ("ไฟล์บทเรียน", "*.pdf *.docx *.pptx *.txt *.md "
+                            "*.jpg *.jpeg *.png *.webp *.bmp *.tiff"),
             ("PDF",          "*.pdf"),
+            ("รูปภาพ",       "*.jpg *.jpeg *.png *.webp *.bmp *.tiff"),
             ("Word",         "*.docx"),
             ("PowerPoint",   "*.pptx"),
             ("Text",         "*.txt *.md"),
@@ -75,10 +77,11 @@ def main():
         shutil.copy2(f, dest)
         print(f"  ✅ {f.name}")
 
-    # OCR: แปลงไฟล์ PDF เป็นข้อความ (.txt) ก่อน แล้วค่อยเอาไป index
-    print("\n[1/3] กำลังแปลงไฟล์ PDF เป็นข้อความ (OCR)...")
+    # OCR: แปลงไฟล์ PDF + รูปภาพ เป็นข้อความ (.txt) ก่อน แล้วค่อยเอาไป index
+    print("\n[1/3] กำลังแปลงไฟล์ PDF / รูปภาพ เป็นข้อความ (OCR)...")
     try:
         pdf_to_txt(str(lesson_path), client, cost_tracker=tracker)
+        images_to_txt(str(lesson_path), client, cost_tracker=tracker)
     except ImportError as e:
         print(f"  ⚠️  {e}")
         print("  ออกจากระบบ — ติดตั้งแล้วรันใหม่")
