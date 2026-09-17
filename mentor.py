@@ -2,7 +2,8 @@ import json
 import re
 from pathlib import Path
 from openai import OpenAI
-from config import MODEL_MENTOR, MODEL_SYNTHESIZER, OPENROUTER_API_KEY, MENTOR_USE_CACHE
+from config import (MODEL_MENTOR, MODEL_SYNTHESIZER, OPENROUTER_API_KEY,
+                    OPENROUTER_API_KEYS, MENTOR_USE_CACHE)
 from rag import RAG
 from observer import Observer
 from cost_tracker import CostTracker
@@ -77,6 +78,13 @@ Sub LO ที่ต้องสอนให้ครบ (ในวงเล็�
      เชื่อมกับเรื่องถัดไป) ⚠️ ห้ามจบด้วยประโยคยืนยันเฉยๆ แล้วเงียบรอนักเรียน
      ตัวอย่างผิด: "ถูกต้อง คำตายในมาตรา ก กา จะประสมกับสระเสียงสั้น นั่นคือคุณสมบัติของมัน" (จบดื้อๆ)
      ตัวอย่างถูก: "ถูกต้อง! คำตายประสมสระเสียงสั้น ทีนี้ลองยกตัวอย่างคำตาย 2 คำที่ใช้บ่อยในชีวิตประจำวันดูสิ"
+   - ข้อความ "filler / ไม่ตอบคำถามแต่ก็ไม่นอกเรื่อง" (เช่น "ไปต่อสิ" "แค่นี้หรอ" "ก็ฝึกดิ" "โอเค"
+     "แล้วไง" "เฉลยเลยละกัน") — ไม่ใช่คำตอบและไม่มีเนื้อหาใหม่ ⚠️ ห้ามพูดว่า "ถูกต้อง" หรือให้เครดิตใดๆ
+     ห้ามเฉลยคำตอบเองแล้วพูดราวกับนักเรียนเป็นคนตอบ ให้ถามคำถามเดิมซ้ำ (ปรับถ้อยคำ/ให้คำใบ้เพิ่มได้)
+     แล้วรอให้นักเรียนตอบเนื้อหาจริงก่อนไปต่อ
+     ตัวอย่างผิด: นักเรียนพิมพ์ "ครับผม ไปต่อสิ" (ไม่ได้ตอบคำถามที่ถามไป) แต่ Mentor ตอบ "ถูกต้อง
+     คำเป็นในมาตรา ก กา จะประสมกับสระเสียงยาว..." (เฉลยเองแล้วอ้างว่านักเรียนตอบถูก — ห้ามทำแบบนี้)
+     ตัวอย่างถูก: "เดี๋ยวก่อน ยังไม่ได้ตอบคำถามเลยนะ ลองตอบดูก่อนว่าคำเป็นในมาตรา ก กา มีลักษณะอย่างไร"
 
 4. สรุปปิดหัวข้อ — ให้นักเรียนสรุปด้วยคำพูดตัวเองก่อน (ห้ามสรุปแทน)
    พอนักเรียนสรุปจบ → Mentor พาเข้าหัวข้อถัดไปเองทันที (เริ่มขั้น 1 ใหม่) ไม่ต้องรอนักเรียนถาม
@@ -116,6 +124,8 @@ trigger Observer เมื่อนักเรียน:
 - แก้โจทย์พร้อมอธิบายเหตุผลได้
 - ตั้งคำถามที่แสดงว่ากำลัง process ข้อมูลจริงๆ
 - สรุปความเข้าใจด้วยคำพูดตัวเองได้
+⚠️ ห้าม trigger ถ้าข้อความล่าสุดของนักเรียนเป็น filler/ไม่ตอบคำถาม (เช่น "ไปต่อสิ" "แค่นี้หรอ" "โอเค")
+— ไม่มีเนื้อหาใหม่จากนักเรียนให้ประเมิน การ trigger ตอนนี้จะกลายเป็นให้เครดิตจากคำตอบที่ Mentor เฉลยเอง
 
 ถ้าได้รับ [OBSERVER_FEEDBACK: ...] ให้ใช้ข้อมูลนั้นปรับวิธีสอน แต่ห้ามบอกนักเรียน
 ถ้าได้รับ [นักเรียนทำคะแนนผ่านครบ...] ให้แจ้งนักเรียนว่าเรียนจบบทนี้แล้ว ออก (quit) หรือถามต่อได้
@@ -193,6 +203,32 @@ def salvage_mentor(raw: str, default_lo: str | None) -> dict:
     }
 
 
+def _append_with_cache(messages: list, history_msgs: list) -> None:
+    """ต่อ history_msgs (ประวัติของนักเรียนคนนี้ที่ยาวขึ้นเรื่อยๆ) เข้า messages
+    โดยใส่ cache_control ที่ก้อนสุดท้ายเท่านั้น — breakpoint นี้ขยับไปข้างหน้าทุก turn
+
+    เพราะเนื้อหา (คำถาม-คำตอบจริง) เป็นของนักเรียนคนนี้โดยเฉพาะ ไม่เหมือนใคร cache ก้อนนี้จึง
+    "แยกเป็นของนักเรียนแต่ละคนเอง" โดยธรรมชาติ (ต่างจาก cache ของ static prompt ที่ตั้งใจให้แชร์
+    ข้ามคนได้เพราะเนื้อหาเหมือนกันทุกคน) — ทดสอบแล้ว: turn ที่ 2 เป็นต้นไป cached ≈ prompt เกือบทั้งหมด
+    (เหลือแค่ส่วนที่เพิ่มมาใหม่ที่ต้องประมวลผลจริง)
+    """
+    if not history_msgs:
+        return
+    messages.extend(history_msgs[:-1])
+    last = history_msgs[-1]
+    if MENTOR_USE_CACHE:
+        messages.append({
+            "role": last["role"],
+            "content": [{
+                "type": "text",
+                "text": last["content"],
+                "cache_control": {"type": "ephemeral", "ttl": "1h"},
+            }],
+        })
+    else:
+        messages.append(last)
+
+
 def _sys_msg(static_system_prompt: str) -> dict:
     """system message ของ Mentor พร้อม cache_control
 
@@ -266,7 +302,7 @@ def select_option(label: str, options: list[str]) -> str:
         print("  กรุณาเลือกอีกครั้ง")
 
 
-def main(client: OpenAI):
+def main(client: OpenAI, api_key: str | None = None):
     print("=" * 55)
     print("  AI-Mentor System | Student Session")
     print("=" * 55)
@@ -306,7 +342,7 @@ def main(client: OpenAI):
     print(f"\nกำลังโหลด {subject} / {lesson}...")
     rag      = RAG(str(lesson_path), client)
     observer = Observer(client, objectives)
-    tracker  = CostTracker()
+    tracker  = CostTracker(api_key=api_key)   # key ของนักเรียนคนนี้ → เช็คยอดเหลือของ key ที่ถูกต้อง
 
     # ── system prompt ส่วน static (สร้างครั้งเดียว ไม่แก้อีกตลอด session) ──
     static_system_prompt = build_static_system_prompt(character_text, objectives)
@@ -458,8 +494,7 @@ def main(client: OpenAI):
                 "role": "system",
                 "content": f"[สรุปบทสนทนาช่วงต้นที่ผ่านมา]\n{history_summary}"
             })
-        for msg in recent[:-1]:
-            messages.append(msg)
+        _append_with_cache(messages, recent[:-1])
 
         # ข้อความล่าสุด: แนบหัวข้อปัจจุบัน + RAG context ท้ายสุด (ส่วนที่เปลี่ยนทุกเทิร์น)
         lo_marker = ""
@@ -588,8 +623,17 @@ def main(client: OpenAI):
 
 
 if __name__ == "__main__":
+    # นักเรียนแต่ละคนมี OpenRouter API key แยกกันเอง (คนละงบ คนละ rate limit)
+    available = {k: v for k, v in OPENROUTER_API_KEYS.items() if v}
+    if available:
+        student_id = select_option("เลือกนักเรียน", sorted(available.keys()))
+        student_key = available[student_id]
+    else:
+        print("⚠️  ไม่พบ OPENROUTER_API_KEY_1 / _2 ใน .env — ใช้ OPENROUTER_API_KEY เดี่ยวแทน")
+        student_key = OPENROUTER_API_KEY
+
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
-        api_key=OPENROUTER_API_KEY
+        api_key=student_key
     )
-    main(client)
+    main(client, api_key=student_key)

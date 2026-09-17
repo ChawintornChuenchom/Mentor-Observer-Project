@@ -41,7 +41,8 @@ def usage_fields(usage) -> tuple[int, int, int, float | None]:
 
 
 class CostTracker:
-    def __init__(self):
+    def __init__(self, api_key: str | None = None):
+        self.api_key          = api_key   # None = ใช้ OPENROUTER_API_KEY (งานฝั่งครู) ผ่าน check_credits
         self.session_start    = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.total_spent      = 0.0
         self.ocr_cost         = 0.0
@@ -53,7 +54,7 @@ class CostTracker:
         self.chat_rows: list[dict] = []
 
     def _remaining(self) -> float | None:
-        return get_remaining()
+        return get_remaining(self.api_key)
 
     def _print_cost_line(self, label: str, in_tok: int, out_tok: int,
                          spent: float, cached: int = 0, estimated: bool = False):

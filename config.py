@@ -3,7 +3,21 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+# นักเรียนแต่ละคนมี OpenRouter API key แยกกันเอง (คนละบัญชี คนละงบ คนละ rate limit)
+# → cache ของ static prompt จะ "ไม่แชร์ข้ามนักเรียน" อีกต่อไป (คนละ key = คนละ user ฝั่ง OpenRouter
+#   ไม่ว่า session_id จะตั้งเหมือนกันแค่ไหนก็ตาม) แต่ยังแชร์กับ "ตัวเอง" ข้าม session ได้ตามปกติ
+# เพิ่มนักเรียนคนใหม่: เพิ่ม OPENROUTER_API_KEY_<ตัวอักษร> ใน .env แล้วเพิ่ม key ในดิกชันนารีนี้
+OPENROUTER_API_KEYS = {
+    "A": os.getenv("OPENROUTER_API_KEY_1"),
+    "B": os.getenv("OPENROUTER_API_KEY_2"),
+}
+
+# key เริ่มต้นสำหรับงานฝั่งครู/setup (main.py, extract_pdf_text.py) ที่ไม่ผูกกับนักเรียนคนใดคนหนึ่ง
+OPENROUTER_API_KEY = (
+    os.getenv("OPENROUTER_API_KEY")
+    or OPENROUTER_API_KEYS["A"]
+    or OPENROUTER_API_KEYS["B"]
+)
 
 # ปิดไว้ชั่วคราวเพื่อเทียบ token/cost แบบมี-ไม่มี prompt cache ได้ตรงๆ
 # (set MENTOR_USE_CACHE=false ใน env ก่อนรัน mentor.py — ไม่ต้องแก้โค้ด)
