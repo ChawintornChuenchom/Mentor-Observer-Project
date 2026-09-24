@@ -23,9 +23,11 @@ OPENROUTER_API_KEY = (
 # (set MENTOR_USE_CACHE=false ใน env ก่อนรัน mentor.py — ไม่ต้องแก้โค้ด)
 MENTOR_USE_CACHE  = os.getenv("MENTOR_USE_CACHE", "true").strip().lower() not in ("false", "0", "no")
 
-MODEL_MENTOR      = os.getenv("MODEL_MENTOR",      "google/gemini-2.5-flash")
+MODEL_MENTOR      = os.getenv("MODEL_MENTOR",      "google/gemini-3.8-flash")
 MODEL_OBSERVER    = os.getenv("MODEL_OBSERVER",    "anthropic/claude-haiku-4.5")
-MODEL_SYNTHESIZER = os.getenv("MODEL_SYNTHESIZER", "google/gemini-2.5-flash")
+MODEL_SYNTHESIZER = os.getenv("MODEL_SYNTHESIZER", "anthropic/claude-sonnet-5")
+# rolling summary ระหว่างคุยกับนักเรียน — ถูกเรียกหลายครั้งต่อ session จึงแยกจาก Synthesizer ให้ใช้รุ่นถูก
+MODEL_SUMMARY     = os.getenv("MODEL_SUMMARY",     "google/gemini-2.5-flash")
 MODEL_EMBEDDING   = os.getenv("MODEL_EMBEDDING",   "openai/text-embedding-3-small")
 
 # OCR: โมเดล vision สำหรับอ่านข้อความจากหน้า PDF

@@ -2,7 +2,7 @@ import json
 import re
 from pathlib import Path
 from openai import OpenAI
-from config import (MODEL_MENTOR, MODEL_SYNTHESIZER, OPENROUTER_API_KEY,
+from config import (MODEL_MENTOR, MODEL_SUMMARY, OPENROUTER_API_KEY,
                     OPENROUTER_API_KEYS, MENTOR_USE_CACHE)
 from rag import RAG
 from observer import Observer
@@ -146,7 +146,7 @@ current_lo = id ของ Sub LO ที่กำลังสอนอยู่ �
 
 def summarize_history(client: OpenAI, messages: list, prev_summary: str | None,
                       tracker: CostTracker | None = None) -> str:
-    """ยุบข้อความเก่าเป็น rolling summary สั้นๆ 1 ก้อน (เรียก MODEL_SYNTHESIZER ครั้งเดียว)"""
+    """ยุบข้อความเก่าเป็น rolling summary สั้นๆ 1 ก้อน (เรียก MODEL_SUMMARY ครั้งเดียว)"""
     convo = "\n".join(
         f"{'นักเรียน' if m['role'] == 'user' else 'Mentor'}: {m['content']}"
         for m in messages
@@ -154,7 +154,7 @@ def summarize_history(client: OpenAI, messages: list, prev_summary: str | None,
     base = f"สรุปเดิม (รวมเข้าไปด้วย):\n{prev_summary}\n\n" if prev_summary else ""
 
     resp = client.chat.completions.create(
-        model=MODEL_SYNTHESIZER,
+        model=MODEL_SUMMARY,
         messages=[
             {"role": "system", "content":
                 "สรุปบทสนทนาการสอนต่อไปนี้เป็นภาษาไทยสั้นๆ ไม่เกิน 6 บรรทัด "

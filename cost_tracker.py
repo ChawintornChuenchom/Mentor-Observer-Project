@@ -7,12 +7,12 @@ from check_credits import get_remaining
 load_dotenv()
 
 # ราคา list price ($/1M tok) — ใช้เป็น fallback เมื่อ OpenRouter ไม่ส่ง usage.cost มา
-PRICE_MENTOR_IN    = float(os.getenv("PRICE_MENTOR_IN",    "0.30"))
-PRICE_MENTOR_OUT   = float(os.getenv("PRICE_MENTOR_OUT",   "2.50"))
+PRICE_MENTOR_IN    = float(os.getenv("PRICE_MENTOR_IN",    "0.75"))
+PRICE_MENTOR_OUT   = float(os.getenv("PRICE_MENTOR_OUT",   "3.75"))
 PRICE_OBSERVER_IN  = float(os.getenv("PRICE_OBSERVER_IN",  "1.00"))
 PRICE_OBSERVER_OUT = float(os.getenv("PRICE_OBSERVER_OUT", "5.00"))
-PRICE_SYNTH_IN     = float(os.getenv("PRICE_SYNTH_IN",     "0.30"))
-PRICE_SYNTH_OUT    = float(os.getenv("PRICE_SYNTH_OUT",    "2.50"))
+PRICE_SYNTH_IN     = float(os.getenv("PRICE_SYNTH_IN",     "2.00"))
+PRICE_SYNTH_OUT    = float(os.getenv("PRICE_SYNTH_OUT",    "10.00"))
 PRICE_EMBED_IN     = float(os.getenv("PRICE_EMBED_IN",     "0.02"))
 PRICE_OCR_IN       = float(os.getenv("PRICE_OCR_IN",       "0.104"))
 PRICE_OCR_OUT      = float(os.getenv("PRICE_OCR_OUT",      "0.416"))
