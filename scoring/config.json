@@ -1,0 +1,10 @@
+{
+  "engine": "kalman",
+  "engine_version": "1.0",
+  "x0": 3.0,
+  "P0": 4.0,
+  "Q": 0.09,
+  "R": { "strong": 0.25, "moderate": 1.00, "weak": 2.25 },
+  "clamp": [1.0, 5.0],
+  "min_obs_to_report": 3
+}

@@ -107,9 +107,21 @@ def main():
         tracker.print_summary()
         return
 
-    # แสดงผล
+    print_objectives(objectives)
+    tracker.print_summary()
+    print("\nนักเรียนสามารถเริ่มเรียนได้แล้วโดยรัน: python mentor.py")
+
+
+def print_objectives(objectives: dict):
     print("\n" + "=" * 55)
     print("✅ Setup เสร็จสมบูรณ์!")
+
+    groups = objectives.get("prompt_groups", [])
+    if groups:
+        print(f"\n🧭 มุมมองการประเมิน: {', '.join(groups)}")
+        if objectives.get("group_reason"):
+            print(f"   {objectives['group_reason']}")
+
     print(f"\n📋 Main LO:\n  {objectives.get('main_lo', '-')}")
 
     sub_los = objectives.get("sub_los", [])
@@ -117,15 +129,20 @@ def main():
     for lo in sub_los:
         tag = "⭐" if lo.get("tag") == "core" else "  "
         print(f"  {tag} {lo['id']}: {lo['statement']}")
+        rubric = lo.get("rubric") or {}
+        for level in ("3", "2", "1", "0"):
+            if rubric.get(level):
+                print(f"       {level} = {rubric[level]}")
+
+    soft = objectives.get("softskills", [])
+    if soft:
+        print(f"\n🧠 ตัวบ่งชี้ soft skill: {len(soft)} สกิล ({', '.join(s['id'] for s in soft)})")
 
     missing = objectives.get("missing_coverage", [])
     if missing:
         print(f"\nเนื้อหาที่ไม่ได้วัด ({len(missing)} รายการ):")
         for m in missing:
             print(f"  - {m}")
-
-    tracker.print_summary()
-    print("\nนักเรียนสามารถเริ่มเรียนได้แล้วโดยรัน: python mentor.py")
 
 
 if __name__ == "__main__":

@@ -1,12 +1,19 @@
+import hashlib
 import json
 import re
+import uuid
+from datetime import datetime
 from pathlib import Path
 from openai import OpenAI
 from config import (MODEL_MENTOR, MODEL_SUMMARY, OPENROUTER_API_KEY,
                     OPENROUTER_API_KEYS, MENTOR_USE_CACHE)
+from json_utils import parse_json
 from rag import RAG
 from observer import Observer
 from cost_tracker import CostTracker
+from scoring.store import ScoreStore, now_iso
+from synthesizer import SCHEMA_VERSION
+import template_loader as tpl
 
 CHARACTERS_DIR = Path("characters")
 LESSONS_DIR    = Path("lessons")
@@ -41,7 +48,21 @@ def build_static_system_prompt(character_text: str, objectives: dict) -> str:
     for lo in objectives.get("sub_los", []):
         lo_type = lo.get("type", "conceptual")
         sub_lo_lines.append(f"- {lo['id']} [{lo_type}]: {lo['statement']}")
+        if lo.get("mentor_activity"):
+            sub_lo_lines.append(f"    กิจกรรมเปิดโอกาสแสดงหลักฐาน: {lo['mentor_activity']}")
     sub_los = "\n".join(sub_lo_lines)
+
+    # กิจกรรมที่เปิดโอกาสให้ soft skill แสดงออก — ไม่มีโอกาส = Observer ประเมินไม่ได้ (N/E)
+    soft_lines = [
+        f"- {sk['required_activity']}"
+        for sk in objectives.get("softskills", []) if sk.get("required_activity")
+    ]
+    soft_block = ""
+    if soft_lines:
+        soft_block = (
+            "\n---\nกิจกรรมเสริมที่ควรสอดแทรกระหว่างสอน (เลือกใช้ให้เข้ากับจังหวะ ไม่ต้องทำครบทุกข้อ"
+            " และต้องไม่ทำให้หลุดหัวข้อที่กำลังสอน):\n" + "\n".join(soft_lines) + "\n"
+        )
 
     return f"""คุณคือ AI-Mentor ตามคาแรกเตอร์และกฎต่อไปนี้:
 
@@ -58,7 +79,7 @@ Sub LO ที่ต้องสอนให้ครบ (ในวงเล็�
 - [conceptual] = วัดความเข้าใจ / วิเคราะห์ / เปรียบเทียบ / ประยุกต์
 - [factual] = ข้อมูล / นิยาม / ตัวเลข-ชื่อ / โครงสร้าง ที่ต้องจำตรงตัว
   → บอกข้อมูลจาก [บริบทอ้างอิง] ตรงๆ ได้เลย ไม่ต้องให้ทาย แล้วค่อยถามต่อยอดเชิงเข้าใจ
-
+{soft_block}
 ---
 วิธีสอนแต่ละหัวข้อ (ทำตามลำดับ ห้ามข้ามขั้น 1):
 
@@ -166,22 +187,6 @@ def summarize_history(client: OpenAI, messages: list, prev_summary: str | None,
     if tracker is not None and getattr(resp, "usage", None):
         tracker.track_synthesizer(resp.usage)
     return resp.choices[0].message.content.strip()
-
-
-def parse_json(raw: str) -> dict:
-    """แปลง output ของ LLM เป็น dict
-
-    strict=False สำคัญมาก — Gemini มักใส่ newline/tab ตัวจริงในค่า string ของ JSON
-    ซึ่ง json.loads ปกติจะ reject ("Invalid control character") ทำให้ทั้งระบบพัง
-    """
-    raw = raw.strip()
-    if raw.startswith("```"):
-        parts = raw.split("```")
-        raw = parts[1] if len(parts) > 1 else raw[3:]
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip()
-    return json.loads(raw, strict=False)
 
 
 def salvage_mentor(raw: str, default_lo: str | None) -> dict:
@@ -302,7 +307,25 @@ def select_option(label: str, options: list[str]) -> str:
         print("  กรุณาเลือกอีกครั้ง")
 
 
-def main(client: OpenAI, api_key: str | None = None):
+def print_soft_results(soft_result: dict, displays: dict):
+    """ผล soft skill: ระดับของ session นี้ + คะแนนสะสม (Kalman) ข้าม session"""
+    names = {sid: s["name"] for sid, s in tpl.softskills().items()}
+    print(f"\n🧠 Soft Skills (session นี้ 1–5 · สะสม):")
+    for sid, data in soft_result.items():
+        level = data.get("level")
+        now   = f"{level}/5 ({data['evidence']})" if level is not None else "N/E"
+        d     = displays.get(sid, {})
+        if d.get("reportable"):
+            acc = f"สะสม {d['score']} (ระดับ {d['level']}, ±{d['sigma']}, {d['confidence']})"
+        else:
+            acc = f"สะสม: {d.get('message', 'ข้อมูลยังไม่พอ')}"
+        print(f"  {sid} {names.get(sid, sid)}")
+        print(f"     └─ {now} · {acc}")
+        if data.get("e"):
+            print(f"        {data['e']}")
+
+
+def main(client: OpenAI, api_key: str | None = None, student_id: str = "anonymous"):
     print("=" * 55)
     print("  AI-Mentor System | Student Session")
     print("=" * 55)
@@ -335,8 +358,11 @@ def main(client: OpenAI, api_key: str | None = None):
     lesson_path = LESSONS_DIR / subject / lesson
 
     # โหลด objectives
-    with open(lesson_path / "objectives.json", encoding="utf-8") as f:
-        objectives = json.load(f)
+    objectives_raw = (lesson_path / "objectives.json").read_bytes()
+    objectives     = json.loads(objectives_raw)
+    if objectives.get("schema_version", 1) < SCHEMA_VERSION:
+        print("\n⚠️  objectives.json ของบทนี้เป็นรุ่นเก่า (ไม่มี rubric / soft skill)"
+              "\n    ประเมินได้เฉพาะ hard skill — สร้างใหม่ด้วย: python resynthesize.py")
 
     # โหลด RAG, Observer, Tracker
     print(f"\nกำลังโหลด {subject} / {lesson}...")
@@ -352,6 +378,13 @@ def main(client: OpenAI, api_key: str | None = None):
     session_id   = re.sub(r"\s+", "-", f"mentor-{subject}-{lesson}-{character_name}")
     mentor_extra = {"session_id": session_id}
 
+    # ── ประวัติการให้คะแนน (คนละตัวกับ session_id ข้างบน ซึ่งใช้ sticky-route ของ OpenRouter) ──
+    store     = ScoreStore()
+    lesson_id = f"{subject}/{lesson}"
+    score_sid = f"sess_{datetime.now():%Y%m%d%H%M%S}_{uuid.uuid4().hex[:6]}"
+    store.start_session(score_sid, student_id, lesson_id, character_name,
+                        hashlib.sha256(objectives_raw).hexdigest()[:16])
+
     # ── state ระดับ session ──
     sub_los_list = objectives.get("sub_los", [])
     sub_lo_map   = {lo["id"]: lo for lo in sub_los_list}
@@ -362,6 +395,7 @@ def main(client: OpenAI, api_key: str | None = None):
 
     chat_history     = []
     hard_scores      = {lo["id"]: None for lo in sub_los_list}
+    hard_best        = {lo["id"]: None for lo in sub_los_list}   # ผลของ session = คะแนนสูงสุดที่เคยได้
     pending_feedback = None
     pending_note     = None   # ข้อความสั่ง Mentor รอบถัดไป (เช่น แจ้งเรียนจบ)
     done_announced   = False  # แจ้ง "ผ่านครบทุกข้อ" ไปแล้วหรือยัง
@@ -403,9 +437,9 @@ def main(client: OpenAI, api_key: str | None = None):
             print(f"  {subject} / {lesson}")
             print(f"{'=' * 55}")
 
-            print(f"\n📊 Hard Skills (เต็ม 3):")
+            print(f"\n📊 Hard Skills (เต็ม 3 · คะแนนสูงสุดใน session):")
             all_hard_pass = True
-            for lo_id, score in hard_scores.items():
+            for lo_id, score in hard_best.items():
                 if score is None:
                     status, label = "⬜", "null"
                     all_hard_pass = False
@@ -416,26 +450,19 @@ def main(client: OpenAI, api_key: str | None = None):
                     all_hard_pass = False
                 print(f"  {status} {lo_id}: {label}")
 
-            print(f"\n🧠 Soft Skills (เต็ม 3):")
-            soft_labels = {
-                "curiosity":         "Curiosity",
-                "persistence":       "Persistence",
-                "critical_thinking": "Critical Thinking",
-                "learning_speed":    "Learning Speed"
-            }
-            for sk_id, label in soft_labels.items():
-                data    = soft_result.get(sk_id, {})
-                score   = data.get("s")
-                summary = data.get("e", "")
-                if score is None:
-                    status, score_label = "⬜", "null"
-                elif score == 3:
-                    status, score_label = "✅", "3/3"
-                else:
-                    status, score_label = "❌", f"{score}/3"
-                print(f"  {status} {label}: {score_label}")
-                if summary:
-                    print(f"     └─ {summary}")
+            # บันทึกผลลง store + อัปเดตคะแนนสะสม soft skill (Kalman)
+            ts = now_iso()
+            soft_obs = [
+                {"session_id": score_sid, "lesson_id": lesson_id, "timestamp": ts,
+                 "skill_id": sid, "level": d["level"], "label": d["label"],
+                 "evidence": d["evidence"], "summary": d.get("e", "")}
+                for sid, d in soft_result.items()
+            ]
+            displays = store.finish_session(score_sid, chat_history, hard_best, soft_obs)
+            store.close()
+
+            if soft_result:
+                print_soft_results(soft_result, displays)
 
             student_msg_count = sum(1 for m in chat_history if m["role"] == "user")
             print(f"\n  Observer ถูกเรียก {observer.call_count} ครั้ง")
@@ -583,11 +610,18 @@ def main(client: OpenAI, api_key: str | None = None):
                 score    = item.get("s")
                 evidence = item.get("e", "")
 
+                if lo_id in hard_scores:
+                    store.record_hard_event(score_sid, len(session_events), lo_id,
+                                            score, evidence, trigger_lo)
+
                 held = False
                 if lo_id in hard_scores and score is not None:
                     old = hard_scores[lo_id]
-                    # ขึ้นได้เสมอ · ลงได้เฉพาะเจอความเข้าใจผิด (score 0) · ไม่งั้นคงคะแนนเดิม
-                    held = old is not None and score < old and score != 0
+                    if hard_best[lo_id] is None or score > hard_best[lo_id]:
+                        hard_best[lo_id] = score
+                    # ขึ้นได้เสมอ · ได้ 3 แล้วถือว่าผ่าน ล็อกไว้
+                    # · ต่ำกว่า 3 ลงได้เฉพาะเจอความเข้าใจผิด (score 0) · ไม่งั้นคงคะแนนเดิม
+                    held = old is not None and score < old and (score != 0 or old == 3)
                     if not held:
                         hard_scores[lo_id] = score
                     score = hard_scores[lo_id]          # คะแนนที่ใช้จริงหลัง guard
@@ -631,9 +665,10 @@ if __name__ == "__main__":
     else:
         print("⚠️  ไม่พบ OPENROUTER_API_KEY_1 / _2 ใน .env — ใช้ OPENROUTER_API_KEY เดี่ยวแทน")
         student_key = OPENROUTER_API_KEY
+        student_id  = input("รหัสนักเรียน: ").strip() or "anonymous"
 
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=student_key
     )
-    main(client, api_key=student_key)
+    main(client, api_key=student_key, student_id=student_id)
