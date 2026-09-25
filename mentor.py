@@ -11,6 +11,7 @@ from json_utils import parse_json
 from rag import RAG
 from observer import Observer
 from cost_tracker import CostTracker
+from run_log import RunLog
 from scoring.store import ScoreStore, now_iso
 from synthesizer import SCHEMA_VERSION
 import template_loader as tpl
@@ -185,7 +186,7 @@ def summarize_history(client: OpenAI, messages: list, prev_summary: str | None,
         ]
     )
     if tracker is not None and getattr(resp, "usage", None):
-        tracker.track_synthesizer(resp.usage)
+        tracker.track_summary(resp.usage)
     return resp.choices[0].message.content.strip()
 
 
@@ -364,11 +365,12 @@ def main(client: OpenAI, api_key: str | None = None, student_id: str = "anonymou
         print("\n⚠️  objectives.json ของบทนี้เป็นรุ่นเก่า (ไม่มี rubric / soft skill)"
               "\n    ประเมินได้เฉพาะ hard skill — สร้างใหม่ด้วย: python resynthesize.py")
 
-    # โหลด RAG, Observer, Tracker
+    # โหลด Tracker, RAG, Observer (tracker ก่อน เพื่อส่งให้ RAG ไว้เก็บ cost ของ embedding ทุก query)
     print(f"\nกำลังโหลด {subject} / {lesson}...")
-    rag      = RAG(str(lesson_path), client)
-    observer = Observer(client, objectives)
     tracker  = CostTracker(api_key=api_key)   # key ของนักเรียนคนนี้ → เช็คยอดเหลือของ key ที่ถูกต้อง
+    tracker.run_log = RunLog(process="session", subject=subject, lesson=lesson, tracker=tracker)
+    rag      = RAG(str(lesson_path), client, cost_tracker=tracker)
+    observer = Observer(client, objectives)
 
     # ── system prompt ส่วน static (สร้างครั้งเดียว ไม่แก้อีกตลอด session) ──
     static_system_prompt = build_static_system_prompt(character_text, objectives)
@@ -384,6 +386,11 @@ def main(client: OpenAI, api_key: str | None = None, student_id: str = "anonymou
     score_sid = f"sess_{datetime.now():%Y%m%d%H%M%S}_{uuid.uuid4().hex[:6]}"
     store.start_session(score_sid, student_id, lesson_id, character_name,
                         hashlib.sha256(objectives_raw).hexdigest()[:16])
+    tracker.run_log.event(
+        "session_start", "info",
+        f"student={student_id} score_sid={score_sid} "
+        f"schema_version={objectives.get('schema_version', 1)}"
+    )
 
     # ── state ระดับ session ──
     sub_los_list = objectives.get("sub_los", [])
@@ -425,6 +432,9 @@ def main(client: OpenAI, api_key: str | None = None, student_id: str = "anonymou
 
         # ── QUIT ──
         if user_input.lower() == "quit":
+            skill_ids = observer.skill_ids()
+            before_state = {sid: store.get_display(student_id, sid) for sid in skill_ids}
+
             soft_result = observer.evaluate_soft(
                 chat_history, history_summary, session_events
             )
@@ -461,6 +471,15 @@ def main(client: OpenAI, api_key: str | None = None, student_id: str = "anonymou
             displays = store.finish_session(score_sid, chat_history, hard_best, soft_obs)
             store.close()
 
+            for sid in skill_ids:
+                b, a = before_state.get(sid, {}), displays.get(sid, {})
+                tracker.run_log.event(
+                    "kalman", "update",
+                    f"{sid} x: {b.get('score', '-')}→{a.get('score', '-')} "
+                    f"(±{b.get('sigma', '-')}→±{a.get('sigma', '-')}, "
+                    f"session={soft_result.get(sid, {}).get('level')})"
+                )
+
             if soft_result:
                 print_soft_results(soft_result, displays)
 
@@ -470,6 +489,7 @@ def main(client: OpenAI, api_key: str | None = None, student_id: str = "anonymou
             print(f"  ผล Hard Skill: {'ผ่านทุกข้อ ✅' if all_hard_pass else 'ยังไม่ผ่านครบ ❌'}")
 
             tracker.save_chat_csv(subject, lesson, character_name)
+            tracker.run_log.close()
             tracker.print_summary()
             break
 
@@ -506,11 +526,13 @@ def main(client: OpenAI, api_key: str | None = None, student_id: str = "anonymou
             if fold_upto % 2 == 0:        # ให้ recent เริ่มด้วย message ของนักเรียนเสมอ
                 fold_upto -= 1
             if fold_upto > summary_covers:
+                folded = fold_upto - summary_covers
                 history_summary = summarize_history(
                     client, chat_history[summary_covers:fold_upto],
                     history_summary, tracker
                 )
                 summary_covers = fold_upto
+                tracker.run_log.event("summary", "fold", f"ยุบ {folded} ข้อความ")
 
         recent = chat_history[summary_covers:]   # ข้อความล่าสุดที่ส่งแบบเต็ม
 
@@ -608,6 +630,7 @@ def main(client: OpenAI, api_key: str | None = None, student_id: str = "anonymou
             for item in feedback.get("hard", []):
                 lo_id    = item.get("id")
                 score    = item.get("s")
+                raw_score = score
                 evidence = item.get("e", "")
 
                 if lo_id in hard_scores:
@@ -632,12 +655,17 @@ def main(client: OpenAI, api_key: str | None = None, student_id: str = "anonymou
                 mark   = " (คงคะแนนเดิม)" if held else ""
                 status = "✅" if score == 3 else "❌" if score is not None else "⬜"
                 print(f"  [{status} Hard {lo_id} = {score}/3{mark} | {evidence}]")
+                tracker.run_log.event(
+                    "observer_hard", "score",
+                    f"{lo_id} raw={raw_score} guarded={score} held={held} | {evidence}"
+                )
             if turn_hard:
                 event["hard"] = turn_hard
 
             for note in feedback.get("n", []):
                 if "PROMPT_INJECTION" in note.upper():
                     print(f"  [⚠️  {note}]")
+                    tracker.run_log.event("observer_hard", "prompt_injection", note)
 
             # track Observer cost
             if hasattr(observer, '_last_usage') and observer._last_usage:

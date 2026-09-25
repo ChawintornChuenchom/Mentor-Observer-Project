@@ -6,6 +6,7 @@ from config import OPENROUTER_API_KEY
 from rag import RAG, pdf_to_txt, images_to_txt
 from synthesizer import Synthesizer
 from cost_tracker import CostTracker
+from run_log import RunLog
 
 LESSONS_DIR = Path("lessons")
 LESSONS_DIR.mkdir(exist_ok=True)
@@ -60,6 +61,8 @@ def main():
     lesson_path = LESSONS_DIR / subject / lesson
     lesson_path.mkdir(parents=True, exist_ok=True)
 
+    tracker.run_log = RunLog(process="setup", subject=subject, lesson=lesson, tracker=tracker)
+
     print(f"\n📚 {subject} / {lesson}")
 
     # เปิด file explorer เลือกไฟล์
@@ -67,6 +70,7 @@ def main():
 
     if not files:
         print("⚠️  ไม่ได้เลือกไฟล์ ออกจากระบบ")
+        tracker.run_log.close()
         return
 
     # copy ไฟล์ที่เลือกไปยัง lesson_path
@@ -85,6 +89,7 @@ def main():
     except ImportError as e:
         print(f"  ⚠️  {e}")
         print("  ออกจากระบบ — ติดตั้งแล้วรันใหม่")
+        tracker.run_log.close()
         return
 
     # RAG: เอาไฟล์ข้อความไปทำ ChromaDB
@@ -94,20 +99,23 @@ def main():
 
     if not total_chunks:
         print("\n⚠️  ไม่มีเนื้อหาถูก index — หยุดก่อนสังเคราะห์วัตถุประสงค์")
+        tracker.run_log.close()
         tracker.print_summary()
         return
 
     # Synthesizer
     print("\n[3/3] กำลังสังเคราะห์วัตถุประสงค์...")
-    synth = Synthesizer(client, rag, cost_tracker=tracker)
+    synth = Synthesizer(client, cost_tracker=tracker)
     try:
         objectives = synth.synthesize(str(lesson_path))
     except ValueError as e:
         print(f"\n⚠️  {e}")
+        tracker.run_log.close()
         tracker.print_summary()
         return
 
     print_objectives(objectives)
+    tracker.run_log.close()
     tracker.print_summary()
     print("\nนักเรียนสามารถเริ่มเรียนได้แล้วโดยรัน: python mentor.py")
 

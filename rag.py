@@ -256,6 +256,28 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 120) -> list[st
     return chunks
 
 
+def lesson_full_text(lesson_path: str, client: OpenAI = None, cost_tracker=None) -> tuple[str, list[str]]:
+    """อ่านไฟล์ชุดเดียวกับ RAG.index_files (.txt/.md/.docx/.pptx) เรียงตามชื่อไฟล์ แบ่ง chunk
+    ตามลำดับเอกสารจริง (ไม่ใช่ตามความคล้ายแบบ RAG.query) แล้วติดป้าย [c1]…[cN] ต่อเนื่องข้ามไฟล์
+
+    คืน (labeled_text, chunks) — chunks ไม่มีป้าย ใช้เทียบว่า evidence_chunks ที่ LLM อ้างมีอยู่จริง
+    """
+    lesson_path = Path(lesson_path)
+    supported = {".txt", ".md", ".docx", ".pptx"}
+    files = sorted(
+        f for f in lesson_path.iterdir()
+        if f.is_file() and f.suffix.lower() in supported
+    )
+
+    chunks = []
+    for file in files:
+        text = extract_text(str(file), client, cost_tracker)
+        chunks.extend(chunk_text(text))
+
+    labeled = "\n\n".join(f"[c{i}] {c}" for i, c in enumerate(chunks, start=1))
+    return labeled, chunks
+
+
 class RAG:
     def __init__(self, lesson_path: str, client: OpenAI, cost_tracker=None):
         self.lesson_path = Path(lesson_path)
@@ -270,10 +292,23 @@ class RAG:
 
         self.cost_tracker = cost_tracker
         self.chroma     = chromadb.PersistentClient(path=self.db_path)
+        # เก็บ embedding_function ไว้เพื่อเปิด collection เดิมได้ (chroma ตรวจสอบตอน get_or_create)
+        # แต่ upsert/query ข้างล่างส่ง embeddings=... ตรงๆ เสมอ เพื่อคุม cost/usage เอง — ef จะไม่ถูกเรียก
         self.collection = self.chroma.get_or_create_collection(
             name="lesson",
             embedding_function=self.ef
         )
+
+    def _embed(self, texts: list[str], step: str = "") -> list[list[float]]:
+        """embed ตรงๆ ผ่าน client เดียวกับส่วนอื่นของระบบ — ต่างจาก embedding_function ของ chroma
+        (ที่ embed แบบซ่อนอยู่ข้างใน มองไม่เห็น usage) ตรงที่ตรงนี้เห็น usage และ track cost ได้"""
+        resp  = self.client.embeddings.create(model=MODEL_EMBEDDING, input=texts)
+        usage = getattr(resp, "usage", None)
+        if self.cost_tracker is not None:
+            in_tok = getattr(usage, "prompt_tokens", 0) or 0 if usage else 0
+            cost   = getattr(usage, "cost", None) if usage else None
+            self.cost_tracker.track_embedding(in_tok, cost=cost, step=step)
+        return [d.embedding for d in resp.data]
 
     def index_files(self):
         # PDF ถูกแปลงเป็น .txt ด้วย pdf_to_txt() ก่อนหน้านี้แล้ว จึงไม่รวม .pdf
@@ -303,10 +338,12 @@ class RAG:
 
                 batch = 50
                 for b in range(0, len(ids), batch):
+                    batch_docs = docs[b:b+batch]
                     self.collection.upsert(
                         ids=ids[b:b+batch],
-                        documents=docs[b:b+batch],
-                        metadatas=metas[b:b+batch]
+                        documents=batch_docs,
+                        metadatas=metas[b:b+batch],
+                        embeddings=self._embed(batch_docs, step="index"),
                     )
 
                 total_chunks += len(chunks)
@@ -327,7 +364,7 @@ class RAG:
         if count == 0:
             return []
         results = self.collection.query(
-            query_texts=[question],
+            query_embeddings=self._embed([question], step="query"),
             n_results=min(n_results, count)
         )
         return results["documents"][0] if results["documents"] else []

@@ -1,4 +1,4 @@
-"""สร้าง objectives.json ใหม่ของบทเรียนที่มีอยู่แล้ว จาก ChromaDB เดิม (ไม่ต้อง OCR/index ซ้ำ)
+"""สร้าง objectives.json ใหม่ของบทเรียนที่มีอยู่แล้ว จากไฟล์ข้อความเดิมที่ OCR/index ไว้แล้ว (ไม่ต้องทำซ้ำ)
 
 ใช้เมื่ออัปเดต template (templates/lo, templates/softskills) หรือ prompt ของ Synthesizer
 คำทักทายที่ cache ไว้ (greetings/) จะถูกลบ เพราะสร้างจาก Sub LO ชุดเดิม
@@ -9,7 +9,7 @@ from config import OPENROUTER_API_KEY
 from cost_tracker import CostTracker
 from main import print_objectives
 from mentor import LESSONS_DIR, select_option
-from rag import RAG
+from run_log import RunLog
 from synthesizer import Synthesizer
 
 
@@ -28,10 +28,11 @@ def main():
 
     client  = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_API_KEY)
     tracker = CostTracker()
-    rag     = RAG(str(lesson_path), client, cost_tracker=tracker)
+    tracker.run_log = RunLog(process="resynth", subject=subject, lesson=lesson, tracker=tracker)
 
-    objectives = Synthesizer(client, rag, cost_tracker=tracker).synthesize(str(lesson_path))
+    objectives = Synthesizer(client, cost_tracker=tracker).synthesize(str(lesson_path))
     if "error" in objectives:
+        tracker.run_log.close()
         return
 
     greetings = lesson_path / "greetings"
@@ -40,6 +41,7 @@ def main():
         print("  ลบคำทักทายเดิมแล้ว (จะสร้างใหม่ตอนนักเรียนเข้าเรียนครั้งแรก)")
 
     print_objectives(objectives)
+    tracker.run_log.close()
     tracker.print_summary()
 
 

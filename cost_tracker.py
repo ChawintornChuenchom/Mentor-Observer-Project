@@ -3,6 +3,8 @@ import os
 from datetime import datetime
 from dotenv import load_dotenv
 from check_credits import get_remaining
+from config import (MODEL_MENTOR, MODEL_OBSERVER, MODEL_SYNTHESIZER,
+                     MODEL_SUMMARY, MODEL_OCR, MODEL_EMBEDDING)
 
 load_dotenv()
 
@@ -13,6 +15,8 @@ PRICE_OBSERVER_IN  = float(os.getenv("PRICE_OBSERVER_IN",  "1.00"))
 PRICE_OBSERVER_OUT = float(os.getenv("PRICE_OBSERVER_OUT", "5.00"))
 PRICE_SYNTH_IN     = float(os.getenv("PRICE_SYNTH_IN",     "2.00"))
 PRICE_SYNTH_OUT    = float(os.getenv("PRICE_SYNTH_OUT",    "10.00"))
+PRICE_SUMMARY_IN   = float(os.getenv("PRICE_SUMMARY_IN",   "0.075"))
+PRICE_SUMMARY_OUT  = float(os.getenv("PRICE_SUMMARY_OUT",  "0.30"))
 PRICE_EMBED_IN     = float(os.getenv("PRICE_EMBED_IN",     "0.02"))
 PRICE_OCR_IN       = float(os.getenv("PRICE_OCR_IN",       "0.104"))
 PRICE_OCR_OUT      = float(os.getenv("PRICE_OCR_OUT",      "0.416"))
@@ -48,24 +52,36 @@ class CostTracker:
         self.ocr_cost         = 0.0
         self.embedding_cost   = 0.0
         self.synthesizer_cost = 0.0
+        self.summary_cost     = 0.0
         self.mentor_cost      = 0.0
         self.observer_cost    = 0.0
         self.cached_tok_total = 0
         self.chat_rows: list[dict] = []
+        self.run_log = None   # ผูกจากนอก CostTracker ด้วย tracker.run_log = RunLog(...) ถ้าต้องการ log ละเอียด
 
     def _remaining(self) -> float | None:
         return get_remaining(self.api_key)
 
     def _print_cost_line(self, label: str, in_tok: int, out_tok: int,
-                         spent: float, cached: int = 0, estimated: bool = False):
-        remaining = self._remaining()
-        rem_str   = f"${remaining:.4f}" if remaining is not None else "N/A"
+                         spent: float, cached: int = 0, estimated: bool = False,
+                         show_remaining: bool = True):
         cached_str = f" cached={cached}tok" if cached else ""
         tag        = "~" if estimated else ""          # ~ = ประมาณจาก list price
+        suffix     = ""
+        if show_remaining:
+            remaining = self._remaining()
+            rem_str   = f"${remaining:.4f}" if remaining is not None else "N/A"
+            suffix    = f" | เหลือ {rem_str}"
         print(f"  💰 {label}: in={in_tok}tok{cached_str} out={out_tok}tok "
-              f"| จ่าย {tag}${spent:.6f} | เหลือ {rem_str}")
+              f"| จ่าย {tag}${spent:.6f}{suffix}")
 
-    def _spend(self, label, usage, price_in, price_out) -> tuple[float, int, int, int]:
+    def _log(self, step: str, model: str, in_tok: int, cached: int, out_tok: int, cost: float):
+        if self.run_log is not None:
+            self.run_log.event(step, "cost", model=model,
+                               in_tok=in_tok, cached_tok=cached, out_tok=out_tok, cost_usd=cost)
+
+    def _spend(self, label, usage, price_in, price_out, model: str = "",
+              run_step: str | None = None, show_remaining: bool = True) -> tuple[float, int, int, int]:
         in_tok, out_tok, cached, real_cost = usage_fields(usage)
         if real_cost is not None:
             spent, estimated = real_cost, False
@@ -74,7 +90,8 @@ class CostTracker:
             spent, estimated = ic + oc, True
         self.total_spent      += spent
         self.cached_tok_total += cached
-        self._print_cost_line(label, in_tok, out_tok, spent, cached, estimated)
+        self._print_cost_line(label, in_tok, out_tok, spent, cached, estimated, show_remaining)
+        self._log(run_step or label, model, in_tok, cached, out_tok, spent)
         return spent, in_tok, out_tok, cached
 
     def track_ocr(self, in_tok: int, out_tok: int, cost: float | None = None):
@@ -87,8 +104,9 @@ class CostTracker:
         self.ocr_cost    += cost
         self.total_spent += cost
         self._print_cost_line("OCR", in_tok, out_tok, cost, 0, est)
+        self._log("ocr", MODEL_OCR, in_tok, 0, out_tok, cost)
 
-    def track_embedding(self, in_tok: int, cost: float | None = None):
+    def track_embedding(self, in_tok: int, cost: float | None = None, step: str = ""):
         if cost is None:
             ic, _ = calc_cost(in_tok, 0, PRICE_EMBED_IN, 0)
             cost, est = ic, True
@@ -96,15 +114,31 @@ class CostTracker:
             est = False
         self.embedding_cost += cost
         self.total_spent    += cost
-        self._print_cost_line("Embedding", in_tok, 0, cost, 0, est)
+        label = "Embedding" + (f"/{step}" if step else "")
+        # ไม่ดึงยอดเหลือทุกครั้ง — embedding ถูกเรียกทุก turn ของ Mentor (RAG query) การยิง HTTP
+        # เพิ่มเพื่อเช็คยอดเหลือทุกครั้งจะทำให้แชทช้าลงโดยไม่จำเป็น
+        self._print_cost_line(label, in_tok, 0, cost, 0, est, show_remaining=False)
+        self._log(step or "embedding", MODEL_EMBEDDING, in_tok, 0, 0, cost)
 
-    def track_synthesizer(self, usage):
-        spent, *_ = self._spend("Synthesizer", usage, PRICE_SYNTH_IN, PRICE_SYNTH_OUT)
+    def track_synthesizer(self, usage, step: str = ""):
+        label = f"Synthesizer/{step}" if step else "Synthesizer"
+        spent, *_ = self._spend(label, usage, PRICE_SYNTH_IN, PRICE_SYNTH_OUT,
+                                model=MODEL_SYNTHESIZER, run_step=step or "synthesizer")
         self.synthesizer_cost += spent
+        return spent
+
+    def track_summary(self, usage):
+        """สรุป rolling history ระหว่าง session — เรียกหลายครั้งต่อ session ด้วย MODEL_SUMMARY
+        คนละโมเดล/คนละงบกับ Synthesizer จึงแยกบัญชี (เดิมถูกนับปนเป็น Synthesizer cost)"""
+        spent, *_ = self._spend("Summary", usage, PRICE_SUMMARY_IN, PRICE_SUMMARY_OUT,
+                                model=MODEL_SUMMARY, run_step="summary")
+        self.summary_cost += spent
+        return spent
 
     def track_mentor(self, usage, mentor_msg: str, student_msg: str) -> dict:
         spent, in_tok, out_tok, cached = self._spend(
-            "Mentor", usage, PRICE_MENTOR_IN, PRICE_MENTOR_OUT
+            "Mentor", usage, PRICE_MENTOR_IN, PRICE_MENTOR_OUT,
+            model=MODEL_MENTOR, run_step="mentor"
         )
         self.mentor_cost += spent
         remaining = self._remaining() or 0.0
@@ -131,7 +165,8 @@ class CostTracker:
         """คิดเงิน Observer (Claude) แล้วบันทึกลง CSV จริง — เดิม cost ส่วนนี้หายไปหลัง print
         ไม่ถูกเก็บที่ไหนถาวร ทำให้ยอดรวมใน log ต่ำกว่าที่จ่ายจริง"""
         spent, in_tok, out_tok, _cached = self._spend(
-            "Observer", usage, PRICE_OBSERVER_IN, PRICE_OBSERVER_OUT
+            "Observer", usage, PRICE_OBSERVER_IN, PRICE_OBSERVER_OUT,
+            model=MODEL_OBSERVER, run_step="observer"
         )
         self.observer_cost += spent
 
@@ -190,6 +225,8 @@ class CostTracker:
         print(f"  OCR:         ${self.ocr_cost:.6f}")
         print(f"  Embedding:   ${self.embedding_cost:.6f}")
         print(f"  Synthesizer: ${self.synthesizer_cost:.6f}")
+        if self.summary_cost:
+            print(f"  Summary:     ${self.summary_cost:.6f}")
         print(f"  Mentor:      ${self.mentor_cost:.6f}")
         print(f"  Observer:    ${self.observer_cost:.6f}")
         print(f"  {'─' * 30}")

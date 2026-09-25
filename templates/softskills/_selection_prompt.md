@@ -4,7 +4,7 @@
 - ผลรอบ 2: main_lo, sub_los (รวม mentor_activity), prompt_groups
 - _index.md ของ soft skill
 - (ขั้น B) ไฟล์เต็มของสกิลที่เลือก
-ไม่ต้องส่งเนื้อหาบทเรียนเต็ม
+- เนื้อหาบทเรียนเต็ม (ส่งเป็น content block แยกที่ cache ไว้แล้วตั้งแต่ขั้นก่อนหน้า — ดู synthesizer.py)
 
 ## ขั้น A — เลือกสกิล (ใช้ _index.md)
 1. อ่าน sub_los และ mentor_activity ไม่ใช่ชื่อวิชา

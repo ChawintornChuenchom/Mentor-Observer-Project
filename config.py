@@ -30,6 +30,11 @@ MODEL_SYNTHESIZER = os.getenv("MODEL_SYNTHESIZER", "anthropic/claude-sonnet-5")
 MODEL_SUMMARY     = os.getenv("MODEL_SUMMARY",     "google/gemini-2.5-flash")
 MODEL_EMBEDDING   = os.getenv("MODEL_EMBEDDING",   "openai/text-embedding-3-small")
 
+# Synthesizer: เพดานความยาวเนื้อหาที่ส่งให้ LLM อ่านตรงๆ (ตัวอักษร)
+# เกินนี้ต้องแบ่งเป็นก้อนแล้วสรุปทีละก้อนก่อน (ดู docs/plan-synthesizer-runlog.md หัวข้อ A2)
+SYNTH_MAX_CHARS   = int(os.getenv("SYNTH_MAX_CHARS",  "200000"))
+SYNTH_PART_CHARS  = int(os.getenv("SYNTH_PART_CHARS", "60000"))
+
 # OCR: โมเดล vision สำหรับอ่านข้อความจากหน้า PDF
 #   - qwen3-vl-32b-instruct = ถูกสุดใน lineup Qwen3-VL (~$0.008/บทเรียน 18 หน้า)
 #     และเป็น 32B dense อ่านไทยได้ดีกว่ารุ่น 8B
