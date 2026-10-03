@@ -13,7 +13,6 @@ from observer import Observer
 from cost_tracker import CostTracker
 from run_log import RunLog
 from scoring.store import ScoreStore, now_iso
-from synthesizer import SCHEMA_VERSION
 import template_loader as tpl
 
 CHARACTERS_DIR = Path("characters")
@@ -45,25 +44,25 @@ def build_static_system_prompt(character_text: str, objectives: dict) -> str:
     เพราะ Gemini 2.5 Flash ใช้ implicit caching ได้ต่อเมื่อ prefix ของ messages เหมือนเดิม
     ส่วนที่เปลี่ยนทุกเทิร์นให้ไปแนบท้ายข้อความ user ล่าสุดแทน
     """
+    # วิธีปรับกิจกรรมเพื่อเปิดโอกาสให้ soft skill แสดงออก — ไม่มีโอกาส = Observer ประเมินไม่ได้ (N/E)
+    # แสดงใต้ sub_lo ที่ required_activity ระบุ เพราะเป็นการปรับกิจกรรมของ sub_lo นั้น ไม่ใช่กิจกรรมแยก
+    names = {sid: s["name"] for sid, s in tpl.softskills().items()}
+    soft_by_lo: dict[str, list[str]] = {}
+    for sk in objectives.get("softskills", []):
+        act = sk.get("required_activity") or {}
+        if act.get("sub_lo") and act.get("how"):
+            soft_by_lo.setdefault(act["sub_lo"], []).append(
+                f"    สำหรับ soft skill {sk['id']} ({names.get(sk['id'], sk['id'])}): {act['how']}"
+            )
+
     sub_lo_lines = []
     for lo in objectives.get("sub_los", []):
         lo_type = lo.get("type", "conceptual")
         sub_lo_lines.append(f"- {lo['id']} [{lo_type}]: {lo['statement']}")
         if lo.get("mentor_activity"):
             sub_lo_lines.append(f"    กิจกรรมเปิดโอกาสแสดงหลักฐาน: {lo['mentor_activity']}")
+        sub_lo_lines.extend(soft_by_lo.get(lo["id"], []))
     sub_los = "\n".join(sub_lo_lines)
-
-    # กิจกรรมที่เปิดโอกาสให้ soft skill แสดงออก — ไม่มีโอกาส = Observer ประเมินไม่ได้ (N/E)
-    soft_lines = [
-        f"- {sk['required_activity']}"
-        for sk in objectives.get("softskills", []) if sk.get("required_activity")
-    ]
-    soft_block = ""
-    if soft_lines:
-        soft_block = (
-            "\n---\nกิจกรรมเสริมที่ควรสอดแทรกระหว่างสอน (เลือกใช้ให้เข้ากับจังหวะ ไม่ต้องทำครบทุกข้อ"
-            " และต้องไม่ทำให้หลุดหัวข้อที่กำลังสอน):\n" + "\n".join(soft_lines) + "\n"
-        )
 
     return f"""คุณคือ AI-Mentor ตามคาแรกเตอร์และกฎต่อไปนี้:
 
@@ -80,7 +79,9 @@ Sub LO ที่ต้องสอนให้ครบ (ในวงเล็�
 - [conceptual] = วัดความเข้าใจ / วิเคราะห์ / เปรียบเทียบ / ประยุกต์
 - [factual] = ข้อมูล / นิยาม / ตัวเลข-ชื่อ / โครงสร้าง ที่ต้องจำตรงตัว
   → บอกข้อมูลจาก [บริบทอ้างอิง] ตรงๆ ได้เลย ไม่ต้องให้ทาย แล้วค่อยถามต่อยอดเชิงเข้าใจ
-{soft_block}
+"สำหรับ soft skill …" ใต้ Sub LO = วิธีปรับกิจกรรมของ Sub LO นั้น ใช้ตอนสอนข้อนั้น
+  (ปรับรูปแบบการถามเท่านั้น ยังต้องสอนให้ Sub LO บรรลุ และห้ามใช้ข้อมูลนอกบทเรียน)
+
 ---
 วิธีสอนแต่ละหัวข้อ (ทำตามลำดับ ห้ามข้ามขั้น 1):
 
@@ -361,9 +362,6 @@ def main(client: OpenAI, api_key: str | None = None, student_id: str = "anonymou
     # โหลด objectives
     objectives_raw = (lesson_path / "objectives.json").read_bytes()
     objectives     = json.loads(objectives_raw)
-    if objectives.get("schema_version", 1) < SCHEMA_VERSION:
-        print("\n⚠️  objectives.json ของบทนี้เป็นรุ่นเก่า (ไม่มี rubric / soft skill)"
-              "\n    ประเมินได้เฉพาะ hard skill — สร้างใหม่ด้วย: python resynthesize.py")
 
     # โหลด Tracker, RAG, Observer (tracker ก่อน เพื่อส่งให้ RAG ไว้เก็บ cost ของ embedding ทุก query)
     print(f"\nกำลังโหลด {subject} / {lesson}...")
@@ -389,7 +387,7 @@ def main(client: OpenAI, api_key: str | None = None, student_id: str = "anonymou
     tracker.run_log.event(
         "session_start", "info",
         f"student={student_id} score_sid={score_sid} "
-        f"schema_version={objectives.get('schema_version', 1)}"
+        f"softskills={[sk['id'] for sk in objectives.get('softskills', [])]}"
     )
 
     # ── state ระดับ session ──

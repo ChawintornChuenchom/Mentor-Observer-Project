@@ -76,6 +76,26 @@ def softskills() -> dict[str, dict]:
     return result
 
 
-def central_scale() -> str:
-    """ตารางระดับคะแนนกลาง 1–5/N/E (ใช้กับทุกสกิล ห้ามเปลี่ยนความหมาย)"""
-    return section(softskill_index(), "ระดับคะแนนกลาง")
+def sections(text: str, headings: list[str]) -> str:
+    """หลายหัวข้อ ## ของไฟล์เดียว ต่อกันพร้อมชื่อหัวข้อ (หัวข้อที่ไม่มีในไฟล์จะถูกข้าม)"""
+    parts = []
+    for h in headings:
+        body = section(text, h)
+        if body:
+            parts.append(f"## {h}\n{body}")
+    return "\n\n".join(parts)
+
+
+# หัวข้อของไฟล์ S ที่ขั้น 4B ใช้เขียนตัวบ่งชี้ (ไม่ส่งอ้างอิง/ทำไมประเมินในแชทได้)
+SOFTSKILL_RUBRIC_HEADINGS = [
+    "ความหมาย",
+    "ตัวบ่งชี้ในข้อความของผู้เรียน",
+    "Rubric กลาง (ความหมายคงที่ ห้ามแก้)",
+    "ไม่นับเป็นหลักฐานของสกิลนี้",
+]
+
+
+def softskill_rubric_text(skill_id: str) -> str:
+    """ชื่อสกิล + หัวข้อที่ขั้น 4B ใช้ ของไฟล์ S นั้น"""
+    skill = softskills()[skill_id]
+    return f"# {skill_id} — {skill['name']}\n\n" + sections(skill["text"], SOFTSKILL_RUBRIC_HEADINGS)

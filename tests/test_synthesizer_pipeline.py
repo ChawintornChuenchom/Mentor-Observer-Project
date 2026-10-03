@@ -1,7 +1,7 @@
 """ทดสอบ Synthesizer.synthesize() แบบ end-to-end ด้วย LLM ปลอม (ไม่เรียก API จริง)
 
 ตรวจตาม docs/plan-synthesizer-runlog.md หัวข้อ Verification ข้อ 2:
-ลำดับ 4 ขั้น, เนื้อหาเป็น message แรกเหมือนกันทุกขั้น (byte เดียวกัน), consolidate <= MAX_SUB_LOS,
+ลำดับ 4 ขั้น, เนื้อหาเป็น message แรกเหมือนกันทุกขั้นที่ใช้ cache (byte เดียวกัน), consolidate <= MAX_SUB_LOS,
 CSV มีครบทุก step
 """
 import csv
@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 from cost_tracker import CostTracker
 from run_log import RunLog
-from synthesizer import Synthesizer, MAX_SUB_LOS, SCHEMA_VERSION
+from synthesizer import Synthesizer, MAX_SUB_LOS
 import template_loader as tpl
 
 
@@ -47,7 +47,7 @@ def usage(cached=0):
 def make_sub_lo(i):
     return {
         "id": f"s{i}", "statement": f"stmt{i}", "tag": "core", "type": "conceptual",
-        "evidence_chunks": ["c1"], "prompt_group": "P10", "content_type": "THAI-R",
+        "source_chunks": ["c1"], "prompt_group": "P10", "content_type": "THAI-R",
         "observable_evidence": "e", "mentor_activity": "m",
         "rubric": {"0": "r0", "1": "r1", "2": "r2", "3": "r3"},
     }
@@ -71,18 +71,29 @@ def test_synthesize_full_pipeline(tmp_path):
     ]}
 
     skills   = tpl.softskills()
-    soft_resp = {"softskills": [
-        {"id": sid, "linked_sub_los": ["s1"], "required_activity": "act",
-         "lesson_indicators": {"1": "a", "2": "b", "3": "c", "4": "d", "5": "e"}}
-        for sid in skills
-    ]}
+    select_resp = {
+        "softskills": [
+            {"id": "S01", "linked_sub_los": ["s1"], "reason": "s1 ให้วิเคราะห์",
+             "required_activity": {"sub_lo": "s1", "how": "ให้วิจารณ์ข้อสรุป"}},
+            {"id": "S02", "linked_sub_los": ["s1"], "reason": "s1 มีโจทย์",
+             "required_activity": {"sub_lo": "s1", "how": "ให้โจทย์ที่ยังไม่บอกวิธี"}},
+        ],
+        "softskills_not_selected": [
+            {"id": sid, "reason": "ไม่มี sub_lo"} for sid in skills if sid not in ("S01", "S02")
+        ],
+    }
+    s01_resp = {"feasible": True,
+                "lesson_indicators": {"1": "a", "2": "b", "3": "c", "4": "d", "5": "e"}}
+    s02_resp = {"feasible": False, "reason": "ไม่มีโจทย์หลายขั้นในเนื้อหา"}
 
     responses = [
         (json.dumps({"prompt_groups": ["P10"], "group_reason": "r", "dropped_groups": []}), usage(0)),
         (json.dumps(lo_rubric_resp, ensure_ascii=False), usage(500)),
         (json.dumps(consolidate_resp), usage(0)),
         (json.dumps(rubric_remerge_resp), usage(500)),
-        (json.dumps(soft_resp), usage(500)),
+        (json.dumps(select_resp, ensure_ascii=False), usage(0)),
+        (json.dumps(s01_resp, ensure_ascii=False), usage(0)),
+        (json.dumps(s02_resp, ensure_ascii=False), usage(0)),
     ]
     client  = FakeClient(responses)
     tracker = CostTracker()
@@ -91,9 +102,12 @@ def test_synthesize_full_pipeline(tmp_path):
 
     objectives = Synthesizer(client, cost_tracker=tracker).synthesize(str(lesson_dir))
 
-    assert objectives["schema_version"] == SCHEMA_VERSION
+    assert "schema_version" not in objectives
     assert len(objectives["sub_los"]) <= MAX_SUB_LOS
-    assert len(objectives["softskills"]) == len(skills)
+    assert [s["id"] for s in objectives["softskills"]] == ["S01"]
+    not_sel = {s["id"]: s["reason"] for s in objectives["softskills_not_selected"]}
+    assert not_sel["S02"] == "4B: ไม่มีโจทย์หลายขั้นในเนื้อหา"
+    assert len(not_sel) == len(skills) - 1
 
     merged = next(lo for lo in objectives["sub_los"] if lo["statement"] == "รวม s2 s3")
     assert merged["rubric"] == {"0": "r0", "1": "r1", "2": "r2", "3": "r3"}
@@ -102,7 +116,7 @@ def test_synthesize_full_pipeline(tmp_path):
     # เนื้อหา (block แรกของทุกขั้นที่ผ่าน _ask_cached) ต้องเป็น byte เดียวกันทุกครั้ง —
     # นี่คือสิ่งที่ทำให้ prompt cache hit ได้ตั้งแต่ขั้น 2 เป็นต้นไป
     cached_calls = [c for c in client.chat.completions.calls if isinstance(c[0]["content"], list)]
-    assert len(cached_calls) == 4   # select_groups, lo_rubric, rubric_remerge, softskills
+    assert len(cached_calls) == 3   # select_groups, lo_rubric, rubric_remerge (4A/4B ไม่แนบเนื้อหาเต็ม)
     first_blocks = {c[0]["content"][0]["text"] for c in cached_calls}
     assert len(first_blocks) == 1
     assert all(c[0]["content"][0].get("cache_control") for c in cached_calls)
@@ -110,6 +124,7 @@ def test_synthesize_full_pipeline(tmp_path):
     tracker.run_log.close()
     rows  = list(csv.DictReader(open(tracker.run_log.path, encoding="utf-8-sig")))
     steps = {r["step"] for r in rows}
-    assert {"select_groups", "lo_rubric", "consolidate", "rubric_remerge", "softskills"} <= steps
+    assert {"select_groups", "lo_rubric", "consolidate", "rubric_remerge", "soft_select",
+            "soft_indicator_S01", "soft_indicator_S02"} <= steps
 
     assert (lesson_dir / "objectives.json").exists()

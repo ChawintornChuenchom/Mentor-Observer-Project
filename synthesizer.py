@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import re
 from openai import OpenAI
 from config import MODEL_SYNTHESIZER, SYNTH_MAX_CHARS, SYNTH_PART_CHARS
 from json_utils import parse_json
@@ -8,7 +9,8 @@ from rag import lesson_full_text
 import template_loader as tpl
 
 MAX_SUB_LOS    = 6   # เพดานตายตัว — ทุกบทเรียนต้องไม่เกินนี้ ไม่ว่าเนื้อหาจะยาว/ซับซ้อนแค่ไหน
-SCHEMA_VERSION = 3   # 3 = อ่านเนื้อหาเต็มบท (ไม่ใช่ RAG top-k), rubric สร้างพร้อม LO ในขั้นเดียว, prompt cache
+MAX_SOFTSKILLS = 5   # ขั้น 4A เลือกได้ 0–5 สกิล ไม่มีขั้นต่ำ
+FORBIDDEN_INDICATOR_PHRASES = ("ตอบถูก", "คำนวณถูก", "ทำตามขั้นตอนได้")
 
 # ── ขั้น 1: เลือกมุมมองการประเมิน (P01–P18) ─────────────────
 SELECT_GROUPS_PROMPT = """คุณคือระบบวิเคราะห์เนื้อหาบทเรียนเพื่อเลือก "มุมมองการประเมิน"
@@ -30,7 +32,9 @@ output เป็น JSON เท่านั้น ห้ามมี markdown:
 SYNTH_LO_RUBRIC_PROMPT = f"""คุณคือระบบสังเคราะห์วัตถุประสงค์การเรียนรู้และเกณฑ์ประเมิน จากเนื้อหาบทเรียนเต็มบท
 
 เนื้อหาที่แนบมาถูกแบ่งเป็นช่วงและติดป้าย [c1] [c2] ... ตามลำดับที่ปรากฏในเอกสารจริง
-ใช้ป้ายเหล่านี้อ้างอิงใน evidence_chunks ตรงๆ ห้ามสร้างป้ายใหม่หรือเดาป้ายที่ไม่มีในเนื้อหา
+ใช้ป้ายเหล่านี้อ้างอิงใน source_chunks ตรงๆ ห้ามสร้างป้ายใหม่หรือเดาป้ายที่ไม่มีในเนื้อหา
+source_chunks ของแต่ละ sub_lo ต้องชี้ช่วงที่เนื้อหาของ sub_lo นั้นอยู่จริง (ครบทุกช่วงที่เกี่ยวข้อง)
+เพราะขั้นสร้างตัวบ่งชี้ soft skill จะดึงข้อความของป้ายเหล่านี้ไปใช้แทนเนื้อหาทั้งบท
 
 งาน:
 1. สังเคราะห์ main_lo: เป้าหมายรวมของบทเรียนใน 1 ประโยค ใช้คำกริยาที่วัดได้
@@ -77,9 +81,9 @@ output เป็น JSON เท่านั้น ห้ามมี markdown:
       "statement": "นักเรียนสามารถ...",
       "tag": "core",
       "type": "conceptual",
-      "evidence_chunks": ["c1", "c3"],
-      "prompt_group": "P03",
-      "content_type": "BIO-M",
+      "source_chunks": ["c1", "c3"],
+      "prompt_group": "<id มุมมองที่เลือก>",
+      "content_type": "<ป้ายจากหัวข้อ 'ป้าย' ของ template นั้น>",
       "observable_evidence": "...",
       "mentor_activity": "...",
       "rubric": {{"0": "...", "1": "...", "2": "...", "3": "..."}}
@@ -130,40 +134,87 @@ output เป็น JSON เท่านั้น ห้ามมี markdown �
   ]
 }}"""
 
-# ── ขั้น 4: สร้างตัวบ่งชี้ soft skill ครบ S01–S12 ────────────
-SOFT_INDICATOR_PROMPT = """คุณคือระบบสร้างตัวบ่งชี้ Soft Skill ตามบทเรียน
+# ── ขั้น 4A: เลือก soft skill จากวัตถุประสงค์ของบท (ไม่ส่งเนื้อหาบทเรียน) ──
+SOFT_SELECT_PROMPT = """คุณคือระบบเลือก Soft Skill ที่ประเมินได้จากวัตถุประสงค์ของบทเรียน
 
 {index}
 
 ---
-รายละเอียดสกิลทั้งหมด:
+main_lo: {main_lo}
 
-{skills}
+sub_los:
+{sub_los}
 
 ---
-งาน: สร้างตัวบ่งชี้ให้ **ครบทุกสกิล {skill_ids}** (ไม่ต้องเลือก ไม่ต้องตัดทิ้ง)
-- linked_sub_los: sub_lo id ที่เปิดโอกาสให้แสดงสกิลนี้ ([] ถ้าไม่มี)
-- required_activity: กิจกรรมที่ Mentor ต้องทำเพิ่มในบทเรียนนี้ เพื่อให้สกิลนี้มีโอกาสแสดงออก
-- ห้ามแก้ความหมายของระดับใน rubric กลาง
-- เขียน lesson_indicators 1 ประโยคต่อระดับ บอกว่า "ระดับนี้หน้าตาเป็นอย่างไรในบทเรียนนี้"
-- ตัวบ่งชี้ต้องเป็นพฤติกรรมทางความคิด/การสื่อสาร ไม่ใช่ความถูกต้องของเนื้อหา
-- ระดับ 3 = สิ่งที่คาดหวังจากบทเรียนนี้ ระดับ 5 ต้องมีการถ่ายโอนหรือทำได้เองเกินที่สอน
-- ห้ามใช้ "ตอบถูก" "คำนวณถูก" "ทำตามขั้นตอนได้" เป็นตัวบ่งชี้
+งาน: ตัดสินทีละสกิล S01–S12 ว่าเลือกหรือไม่ ตาม "วิธีเลือก" ข้างบน
+- ตัดสินจาก main_lo และ sub_los ข้างบนเท่านั้น
+- linked_sub_los: sub_lo id ที่เปิดโอกาสให้แสดงสกิลนี้ (อย่างน้อย 1)
+- reason (สกิลที่เลือก): 1 ประโยค บอกว่า sub_lo ข้อไหนให้นักเรียนทำอะไร ที่ตรงกับ "ประเมินได้เมื่อ" ของสกิลนี้ ต้องอ้าง sub_lo id
+- required_activity: sub_lo = id ที่จะปรับกิจกรรม (ต้องอยู่ใน linked_sub_los) · how = 1–2 ประโยค บอกว่า Mentor ปรับวิธีทำ mentor_activity เดิมอย่างไร กิจกรรมต้องยังทำให้ sub_lo นั้นบรรลุ ห้ามเพิ่มหัวข้อหรือข้อมูลที่ไม่มีในบทเรียน
+- reason (สกิลที่ไม่เลือก): 1 ประโยค บอกว่า sub_los ขาดอะไร
+- ทุกสกิล S01–S12 ต้องอยู่ใน softskills หรือ softskills_not_selected อย่างใดอย่างหนึ่ง ครั้งเดียว
+- softskills มีได้ 0–5 สกิล
 
-ตัวอย่าง lesson_indicators — S02 ในบท "สมการเชิงเส้นตัวแปรเดียว"
-{example}
+ตัวอย่าง required_activity (บทอาณาจักรธนบุรี — ใช้ดูรูปแบบเท่านั้น):
+ดี — S01, sub_lo s2 (วิเคราะห์เหตุผลที่เลือกธนบุรีเป็นราชธานี):
+  "แทนที่จะถามตรงๆ ว่าทำไมเลือกธนบุรี ให้ Mentor เสนอข้อสรุป 'ธนบุรีถูกเลือกเพราะใกล้ทะเลอย่างเดียว' แล้วให้นักเรียนวิจารณ์ว่าขาดเหตุผลใด"
+  (ยังสอน s2 อยู่ แค่จัดรูปให้นักเรียนได้วิจารณ์)
+ไม่ดี — S06, sub_lo s1 (ลำดับเหตุการณ์):
+  "ให้แหล่งข้อมูลสองแหล่งที่ระบุปีต่างกันให้นักเรียนประเมิน"
+  (บทเรียนไม่มีแหล่งข้อมูลที่สอง Mentor ต้องแต่งขึ้นเอง → ห้ามเลือก S06)
 
 output เป็น JSON เท่านั้น ห้ามมี markdown:
 {{
   "softskills": [
     {{
       "id": "S01",
-      "linked_sub_los": ["s1"],
-      "required_activity": "...",
-      "lesson_indicators": {{"1": "...", "2": "...", "3": "...", "4": "...", "5": "..."}}
+      "linked_sub_los": ["s2"],
+      "reason": "...",
+      "required_activity": {{"sub_lo": "s2", "how": "..."}}
     }}
+  ],
+  "softskills_not_selected": [
+    {{"id": "S06", "reason": "..."}}
   ]
 }}"""
+
+# ── ขั้น 4B: เขียนตัวบ่งชี้ของสกิลที่เลือก ทีละสกิล จาก rubric ของสกิลนั้น + เนื้อหาตาม source_chunks ──
+SOFT_INDICATOR_PROMPT = """คุณคือระบบเขียนตัวบ่งชี้ Soft Skill ของบทเรียน
+
+สกิล:
+{skill_text}
+
+---
+sub_los ที่เชื่อมกับสกิลนี้:
+{linked}
+
+กิจกรรมที่ Mentor จะใช้: {activity}
+
+เนื้อหาบทเรียนที่เกี่ยวข้อง:
+{chunks}
+
+---
+งาน: เขียน lesson_indicators ระดับ 1–5 ระดับละ 1 ประโยค บอกว่า "ระดับนี้ของสกิลนี้ ในบทเรียนนี้ นักเรียนพูดหรือทำอะไร"
+- แต่ละระดับคือ rubric ระดับเดียวกันของสกิลนี้ ยกตัวอย่างด้วยเนื้อหาของบทเรียนนี้
+  ห้ามเปลี่ยนความหมาย ห้ามเพิ่มเงื่อนไขใหม่ ห้ามทำให้ยากหรือง่ายกว่า rubric
+- ใช้เนื้อหาจาก "เนื้อหาบทเรียนที่เกี่ยวข้อง" เท่านั้น ห้ามอ้างข้อมูลที่ไม่มีในนั้น
+- วัดพฤติกรรมของสกิล ไม่ใช่ความถูกต้องของเนื้อหา — เนื้อหาเป็นแค่บริบท
+  ห้ามใช้ "ตอบถูก" "คำนวณถูก" "ทำตามขั้นตอนได้" "รู้ว่า…" "อธิบายได้ว่า…(เนื้อหา)" เป็นตัวบ่งชี้
+- พฤติกรรมทุกระดับต้องเกิดได้ในกิจกรรมของ Mentor ข้างบน
+- ถ้าเขียนระดับ 3 ที่ผูกกับ sub_los และเนื้อหานี้ไม่ได้ ให้ตอบ feasible: false พร้อม reason
+
+ตัวอย่างรูปแบบ — S02 ในบท "สมการเชิงเส้นตัวแปรเดียว"
+{example}
+
+ตัวอย่างการเทียบกับ rubric — S01 ระดับ 2 (rubric: "ตั้งข้อสงสัยได้เมื่อถูกกระตุ้น แต่ไม่ให้เหตุผล")
+ดี: "เมื่อ Mentor ถามว่าข้อสรุปนี้ครบไหม จึงบอกว่าไม่ครบ แต่บอกไม่ได้ว่าขาดอะไร"
+ไม่ดี: "เลือกตอบว่าเหตุผลข้อใดสำคัญที่สุดแต่ไม่อธิบาย" (การเลือกคำตอบไม่ใช่การตั้งข้อสงสัย — ความหมายเพี้ยนจาก rubric)
+ไม่ดี: "อธิบายได้ว่าธนบุรีถูกเลือกเพราะใกล้ทะเลและดูแลง่าย" (วัดเนื้อหา = hard skill)
+
+output เป็น JSON เท่านั้น ห้ามมี markdown:
+{{"feasible": true, "lesson_indicators": {{"1": "...", "2": "...", "3": "...", "4": "...", "5": "..."}}}}
+หรือ
+{{"feasible": false, "reason": "..."}}"""
 
 # ผ่าน pass เดียว โมเดลมักหลุดกฎเรื่องจำนวน/คู่ขนาน เพราะแข่งกับงานอื่นในพรอมต์เดียวกัน
 # (ทดสอบแล้ว: ให้ตัวอย่างชัดเจนแล้วยังแยกคู่ใหม่ที่ไม่ได้ยกตัวอย่างไว้ และยังเกินจำนวนที่ขอ)
@@ -214,6 +265,153 @@ def split_into_parts(chunks: list[str], part_chars: int) -> list[list[tuple[int,
     if current:
         parts.append(current)
     return parts
+
+
+def _label_num(label: str) -> int:
+    m = re.fullmatch(r"c(\d+)", str(label))
+    return int(m.group(1)) if m else 0
+
+
+def sort_labels(labels) -> list[str]:
+    """ป้าย [cN] ไม่ซ้ำ เรียงตามเลข (ไม่ใช่ตามตัวอักษร ที่จะได้ c10 ก่อน c2)"""
+    return sorted(set(labels), key=_label_num)
+
+
+def chunks_by_label(chunks: list[str], labels) -> str:
+    """ข้อความของป้าย [cN] จาก chunks ดิบ (ป้าย cN = chunks[N-1] ทั้งโหมดเต็มและโหมดสรุปเป็นก้อน
+    เพราะการสรุปเก็บป้ายเดิมไว้) — ไม่ซ้ำ เรียงตามเลข ป้ายที่ไม่มีจริงถูกข้าม"""
+    out = []
+    for label in sort_labels(labels):
+        n = _label_num(label)
+        if 1 <= n <= len(chunks):
+            out.append(f"[{label}] {chunks[n - 1]}")
+    return "\n\n".join(out)
+
+
+def _mentions_id(text: str, sub_lo_id: str) -> bool:
+    # \b ใช้ไม่ได้กับไทย (อักษรไทยนับเป็น \w) จึงเช็คเฉพาะอักษรละติน/ตัวเลขรอบๆ
+    return re.search(rf"(?<![A-Za-z0-9]){re.escape(sub_lo_id)}(?!\d)", text or "") is not None
+
+
+def validate_selection(result: dict | None, sub_lo_ids: list[str],
+                       skill_ids: list[str]) -> tuple[list[dict], list[dict], list[str]]:
+    """ตัวตรวจหลัง 4A (โค้ด ไม่ใช่ LLM) — คืน (selected, not_selected, รายการที่แก้/เตือน)
+    ผลลัพธ์การันตีว่า id ของสองฝั่งรวมกันเท่ากับ skill_ids พอดี ฝั่งละครั้งเดียว"""
+    log: list[str] = []
+    if not isinstance(result, dict):
+        log.append("4A ล้มเหลว — ทุกสกิลเข้า not_selected")
+        return [], [{"id": sid, "reason": "4A ล้มเหลว"} for sid in skill_ids], log
+
+    known = set(skill_ids)
+
+    def entries(key: str) -> list[dict]:
+        out = []
+        for item in result.get(key) or []:
+            sid = item.get("id") if isinstance(item, dict) else None
+            if not isinstance(sid, str) or not re.fullmatch(r"S\d{2}", sid) or sid not in known:
+                log.append(f"{key}: ทิ้ง id ที่ไม่รู้จัก {sid!r}")
+                continue
+            out.append(item)
+        return out
+
+    sel_raw, not_raw = entries("softskills"), entries("softskills_not_selected")
+    sel_ids = [s["id"] for s in sel_raw]
+    in_both = set(sel_ids) & {s["id"] for s in not_raw}
+
+    selected:     list[dict] = []
+    not_selected: dict[str, dict] = {}
+
+    def drop(sid: str, reason: str):
+        if sid not in not_selected:
+            not_selected[sid] = {"id": sid, "reason": reason}
+
+    for s in not_raw:
+        drop(s["id"], s.get("reason") or "")
+
+    seen = set()
+    sub_set = set(sub_lo_ids)
+    for s in sel_raw:
+        sid = s["id"]
+        if sid in seen:
+            log.append(f"{sid} ซ้ำใน softskills — เก็บตัวแรก")
+            continue
+        seen.add(sid)
+        if sid in in_both:
+            log.append(f"{sid} อยู่ทั้งสองฝั่ง — ถือว่าไม่เลือก")
+            continue
+        linked = s.get("linked_sub_los")
+        if not isinstance(linked, list) or not linked or not all(i in sub_set for i in linked):
+            log.append(f"{sid} linked_sub_los ไม่ถูกต้อง {linked!r} — ย้ายไป not_selected")
+            drop(sid, f"linked_sub_los ไม่ถูกต้อง: {s.get('reason', '')}")
+            continue
+        act = s.get("required_activity")
+        if (not isinstance(act, dict) or act.get("sub_lo") not in linked
+                or not str(act.get("how") or "").strip()):
+            log.append(f"{sid} required_activity ไม่ถูกต้อง {act!r} — ย้ายไป not_selected")
+            drop(sid, f"required_activity ไม่ถูกต้อง: {s.get('reason', '')}")
+            continue
+        reason = s.get("reason") or ""
+        if not reason.strip() or not any(_mentions_id(reason, i) for i in linked):
+            log.append(f"{sid} reason ไม่อ้าง sub_lo id ที่ link ไว้ (เตือนเท่านั้น)")
+        selected.append({
+            "id":                sid,
+            "linked_sub_los":    linked,
+            "reason":            reason,
+            "required_activity": {"sub_lo": act["sub_lo"], "how": act["how"].strip()},
+        })
+
+    # ตรวจความถูกต้องรายสกิลก่อน แล้วค่อยตัดเพดาน — สกิลที่ผิดรูปไม่ควรกินโควตาของสกิลที่ถูก
+    for s in selected[MAX_SOFTSKILLS:]:
+        log.append(f"{s['id']} เกิน {MAX_SOFTSKILLS} สกิล — ย้ายไป not_selected")
+        drop(s["id"], f"เกิน {MAX_SOFTSKILLS} สกิล")
+    selected = selected[:MAX_SOFTSKILLS]
+
+    chosen = {s["id"] for s in selected}
+    for sid in skill_ids:
+        if sid in chosen:
+            not_selected.pop(sid, None)
+        elif sid not in not_selected:
+            log.append(f"{sid} โมเดลไม่ได้ระบุ — เพิ่มใน not_selected")
+            drop(sid, "โมเดลไม่ได้ระบุ")
+
+    return selected, [not_selected[sid] for sid in skill_ids if sid in not_selected], log
+
+
+def validate_indicator(result: dict | None) -> tuple[str, dict | str | None, list[str]]:
+    """ตัวตรวจหลัง 4B ของสกิลเดียว — คืน (status, payload, คำเตือน)
+    status: "ok" (payload = lesson_indicators) · "infeasible" (payload = reason) · "invalid" (ควร retry)"""
+    if not isinstance(result, dict):
+        return "invalid", None, ["parse JSON ไม่ได้"]
+    if result.get("feasible") is False:
+        return "infeasible", str(result.get("reason") or ""), []
+    ind = result.get("lesson_indicators")
+    levels = ("1", "2", "3", "4", "5")
+    if not isinstance(ind, dict):
+        return "invalid", None, ["ไม่มี lesson_indicators"]
+    missing = [lv for lv in levels if not isinstance(ind.get(lv), str) or not ind[lv].strip()]
+    if missing:
+        return "invalid", None, [f"lesson_indicators ขาดระดับ {missing}"]
+    warnings = [
+        f"ระดับ {lv} มีวลีต้องห้าม '{ph}'"
+        for lv in levels for ph in FORBIDDEN_INDICATOR_PHRASES if ph in ind[lv]
+    ]
+    return "ok", {lv: ind[lv].strip() for lv in levels}, warnings
+
+
+def _has_key(obj, key: str) -> bool:
+    if isinstance(obj, dict):
+        return key in obj or any(_has_key(v, key) for v in obj.values())
+    if isinstance(obj, list):
+        return any(_has_key(v, key) for v in obj)
+    return False
+
+
+def check_before_write(objectives: dict, skill_ids: list[str]) -> None:
+    """ตรวจข้อ 5.3 ก่อนเขียน objectives.json — ผิดคือ bug ของโค้ด จึง assert"""
+    assert not _has_key(objectives, "evidence_chunks"), "ยังมี key evidence_chunks ใน objectives"
+    ids = [s["id"] for s in objectives.get("softskills", [])] + \
+          [s["id"] for s in objectives.get("softskills_not_selected", [])]
+    assert sorted(ids) == sorted(skill_ids), f"soft skill สองฝั่งรวมกันไม่ครบ/ซ้ำ: {ids}"
 
 
 class Synthesizer:
@@ -267,6 +465,33 @@ class Synthesizer:
             self._log(step, "parse_error", (response.choices[0].message.content or "")[:200])
             return None
 
+    def _ask_plain(self, step: str, instruction_text: str) -> dict | None:
+        """เรียก LLM โดยไม่แนบเนื้อหาเต็มบท (ขั้น 4A/4B) — ล้มเหลวหรือ parse ไม่ได้คืน None"""
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": instruction_text},
+                    {"role": "user",   "content": "ทำงานตามคำสั่งข้างบน"},
+                ],
+                extra_body=self._extra,
+            )
+        except Exception as e:
+            print(f"  ⚠️  {step} ไม่สำเร็จ ({e})")
+            self._log(step, "error", str(e)[:200])
+            return None
+
+        if self.cost_tracker is not None and getattr(response, "usage", None):
+            self.cost_tracker.track_synthesizer(response.usage, step=step)
+
+        raw = response.choices[0].message.content or ""
+        try:
+            return parse_json(raw)
+        except json.JSONDecodeError:
+            print(f"  ⚠️  parse ผล{step}ไม่ได้")
+            self._log(step, "parse_error", raw[:200])
+            return None
+
     def _summarize_part(self, part_text: str, i: int, n: int) -> str:
         print(f"     สรุปก้อน {i}/{n}...")
         try:
@@ -289,7 +514,7 @@ class Synthesizer:
         return response.choices[0].message.content or part_text
 
     def _read_content(self, lesson_path: str) -> tuple[str, list[str]]:
-        """คืน (content_text ที่จะให้ LLM อ่านในขั้น 1/2/4, chunks ดิบ) — content_text คือเนื้อหาเต็ม
+        """คืน (content_text ที่จะให้ LLM อ่านในขั้น 1/2, chunks ดิบ — ขั้น 4B ดึงข้อความตามป้ายจากนี่) — content_text คือเนื้อหาเต็ม
         ติดป้าย [cN] ตามลำดับเอกสาร หรือสรุปเป็นก้อนๆ ถ้ายาวเกิน SYNTH_MAX_CHARS"""
         labeled, chunks = lesson_full_text(lesson_path, self.client, self.cost_tracker)
         if not chunks:
@@ -386,33 +611,167 @@ class Synthesizer:
             print(f"     ⚠️  ยังไม่มี rubric: {', '.join(still_missing)} (Observer จะใช้เกณฑ์กลางแทน)")
             self._log("rubric_remerge", "warn", f"ยังไม่มี rubric: {still_missing}")
 
-    def _build_softskills(self, content: str, objectives: dict) -> list[dict]:
-        """ขั้น 4: สร้าง lesson_indicators ครบทุกสกิล S01–S12 (อ่าน cache ของ content)"""
-        print("  🧠 สร้างตัวบ่งชี้ soft skill ครบทุกสกิล...")
-        skills  = tpl.softskills()
-        sub_los = [
-            {k: lo.get(k) for k in ("id", "statement", "type", "mentor_activity")}
-            for lo in objectives.get("sub_los", [])
+    def _select_softskills(self, objectives: dict) -> tuple[list[dict], list[dict]]:
+        """ขั้น 4A: เลือก soft skill 0–5 ตัวจาก main_lo + sub_los (ไม่ส่งเนื้อหาบทเรียน) + ตัวตรวจข้อ 5.1"""
+        print("  🧠 เลือก soft skill จากวัตถุประสงค์...")
+        sub_los = objectives.get("sub_los", [])
+        listing = [
+            {k: lo.get(k) for k in
+             ("id", "statement", "type", "tag", "mentor_activity", "observable_evidence")}
+            for lo in sub_los
         ]
-        instruction = SOFT_INDICATOR_PROMPT.format(
+        instruction = SOFT_SELECT_PROMPT.format(
             index=tpl.softskill_index(),
-            skills="\n\n---\n\n".join(s["text"] for s in skills.values()),
-            skill_ids=", ".join(skills),
-            example=tpl.section(tpl.softskill_selection_prompt(), "ตัวอย่าง lesson_indicators"),
-        ) + (
-            f"\n\nmain_lo: {objectives.get('main_lo', '')}\n\n"
-            f"sub_los:\n{json.dumps(sub_los, ensure_ascii=False, indent=2)}"
+            main_lo=objectives.get("main_lo", ""),
+            sub_los=json.dumps(listing, ensure_ascii=False, indent=2),
         )
-        result = self._ask_cached("softskills", content, instruction) or {}
+        result = self._ask_plain("soft_select", instruction)
+        if not isinstance(result, dict):
+            print("     ลองใหม่อีกครั้ง...")
+            result = self._ask_plain("soft_select", instruction)
 
-        by_id   = {s.get("id"): s for s in result.get("softskills", [])}
-        ordered = [by_id[sid] for sid in skills if sid in by_id]
-        missing = [sid for sid in skills if sid not in by_id]
-        if missing:
-            print(f"     ⚠️  ไม่ได้ตัวบ่งชี้ของ {', '.join(missing)}")
-            self._log("softskills", "warn", f"ไม่ได้ตัวบ่งชี้ของ {missing}")
-        print(f"     → {len(ordered)}/{len(skills)} สกิล")
-        return ordered
+        selected, not_selected, fixes = validate_selection(
+            result, [lo["id"] for lo in sub_los], list(tpl.softskills())
+        )
+        for msg in fixes:
+            print(f"     ⚠️  {msg}")
+            self._log("soft_select", "warn", msg)
+        print(f"     → เลือก {', '.join(s['id'] for s in selected) or '(ไม่มี)'}")
+        self._log("soft_select", "result",
+                  f"selected={[s['id'] for s in selected]} "
+                  f"not_selected={[s['id'] for s in not_selected]}")
+        return selected, not_selected
+
+    def _build_indicator(self, skill: dict, objectives: dict,
+                         chunks: list[str]) -> tuple[dict | None, str]:
+        """ขั้น 4B ของสกิลเดียว + ตัวตรวจข้อ 5.2 — คืน (lesson_indicators, "") ถ้าผ่าน
+        หรือ (None, เหตุผลที่ย้ายไป not_selected)"""
+        sid    = skill["id"]
+        step   = f"soft_indicator_{sid}"
+        by_id  = {lo["id"]: lo for lo in objectives.get("sub_los", [])}
+        linked = [by_id[i] for i in skill["linked_sub_los"] if i in by_id]
+
+        labels = [c for lo in linked for c in lo.get("source_chunks", [])]
+        if labels:
+            lesson_text = chunks_by_label(chunks, labels)
+        else:
+            msg = f"{sid}: sub_lo ที่ link ไม่มี source_chunks — ใช้เนื้อหาทั้งบท"
+            print(f"     ⚠️  {msg}")
+            self._log(step, "warn", msg)
+            lesson_text = chunks_by_label(chunks, [f"c{i}" for i in range(1, len(chunks) + 1)])
+
+        instruction = SOFT_INDICATOR_PROMPT.format(
+            skill_text=tpl.softskill_rubric_text(sid),
+            linked=json.dumps(
+                [{k: lo.get(k) for k in ("id", "statement", "mentor_activity", "observable_evidence")}
+                 for lo in linked],
+                ensure_ascii=False, indent=2,
+            ),
+            activity=skill["required_activity"]["how"],
+            chunks=lesson_text,
+            example=tpl.section(tpl.softskill_selection_prompt(), "ตัวอย่าง lesson_indicators"),
+        )
+
+        for attempt in (1, 2):
+            status, payload, warnings = validate_indicator(self._ask_plain(step, instruction))
+            for msg in warnings:
+                print(f"     ⚠️  {sid}: {msg}")
+                self._log(step, "warn", f"{sid}: {msg}")
+            if status == "ok":
+                return payload, ""
+            if status == "infeasible":
+                self._log(step, "warn", f"{sid} feasible=false: {payload}")
+                return None, f"4B: {payload}"
+            if attempt == 1:
+                print(f"     ลอง {sid} ใหม่อีกครั้ง...")
+        self._log(step, "warn", f"{sid} ตัวบ่งชี้ไม่ครบหลัง retry — ย้ายไป not_selected")
+        return None, "4B: ตัวบ่งชี้ไม่ครบหลังลองใหม่"
+
+    def build_softskills(self, objectives: dict, chunks: list[str]) -> dict:
+        """ขั้น 4 ทั้งหมด: 4A เลือก แล้ว 4B ทีละสกิลที่ผ่าน — เขียน softskills /
+        softskills_not_selected ลง objectives (สกิลที่ 4B ไม่ผ่านถูกย้ายไป not_selected)"""
+        selected, not_selected = self._select_softskills(objectives)
+        kept = []
+        for skill in selected:
+            print(f"  ✏️  เขียนตัวบ่งชี้ {skill['id']}...")
+            indicators, why = self._build_indicator(skill, objectives, chunks)
+            if indicators is None:
+                print(f"     ⚠️  {skill['id']} ย้ายไป not_selected ({why})")
+                not_selected.append({"id": skill["id"], "reason": why})
+                continue
+            kept.append({**skill, "lesson_indicators": indicators})
+
+        order = list(tpl.softskills())
+        objectives["softskills"] = kept
+        objectives["softskills_not_selected"] = sorted(not_selected, key=lambda s: order.index(s["id"]))
+        return objectives
+
+    def _load_for_softskills(self, lesson_path: str) -> tuple[dict, list[str], str]:
+        self._extra = {"session_id": f"synth-{hashlib.sha256(lesson_path.encode()).hexdigest()[:12]}"}
+        output_path = os.path.join(lesson_path, "objectives.json")
+        with open(output_path, encoding="utf-8") as f:
+            objectives = json.load(f)
+        if "sub_los" not in objectives:
+            raise ValueError("objectives.json ไม่มี sub_los — รัน Synthesizer เต็มก่อน")
+        _, chunks = lesson_full_text(lesson_path, self.client, self.cost_tracker)
+        return objectives, chunks, output_path
+
+    def _write(self, objectives: dict, output_path: str) -> None:
+        check_before_write(objectives, list(tpl.softskills()))
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(objectives, f, ensure_ascii=False, indent=2)
+
+    def resynthesize_softskills(self, lesson_path: str) -> dict:
+        """รันเฉพาะขั้น 4 ใหม่จาก objectives.json ที่มีอยู่ (sub_los เดิม)"""
+        objectives, chunks, output_path = self._load_for_softskills(lesson_path)
+        self.build_softskills(objectives, chunks)
+        self._run_hallucination_checks(objectives)
+        self._write(objectives, output_path)
+        print("  บันทึก objectives.json แล้ว ✅")
+        return objectives
+
+    def add_softskill(self, lesson_path: str, skill_id: str, linked_sub_los: list[str],
+                      required_activity: dict) -> dict:
+        """ดึงสกิลที่ไม่ถูกเลือกกลับมา: ตรวจข้อมูลที่ครูให้ → รัน 4B สกิลเดียว → ย้ายจาก
+        softskills_not_selected ไป softskills แล้วเขียนกลับ (4B ไม่ผ่าน = ไม่เปลี่ยนไฟล์)"""
+        objectives, chunks, output_path = self._load_for_softskills(lesson_path)
+
+        if any(s["id"] == skill_id for s in objectives.get("softskills", [])):
+            raise ValueError(f"{skill_id} ถูกเลือกอยู่แล้ว")
+        if not any(s["id"] == skill_id for s in objectives.get("softskills_not_selected", [])):
+            raise ValueError(f"{skill_id} ไม่อยู่ใน softskills_not_selected")
+        sub_ids = {lo["id"] for lo in objectives["sub_los"]}
+        if not linked_sub_los or not set(linked_sub_los) <= sub_ids:
+            raise ValueError(f"linked_sub_los ต้องไม่ว่างและอยู่ใน {sorted(sub_ids)}")
+        if (required_activity.get("sub_lo") not in linked_sub_los
+                or not str(required_activity.get("how") or "").strip()):
+            raise ValueError("required_activity.sub_lo ต้องอยู่ใน linked_sub_los และ how ต้องไม่ว่าง")
+        if len(objectives.get("softskills", [])) >= MAX_SOFTSKILLS:
+            raise ValueError(f"บทนี้มี {MAX_SOFTSKILLS} สกิลแล้ว (เพดาน) — ต้องเอาสกิลอื่นออกก่อน")
+
+        skill = {
+            "id":                skill_id,
+            "linked_sub_los":    linked_sub_los,
+            "reason":            "ครูเพิ่มเอง",
+            "required_activity": {"sub_lo": required_activity["sub_lo"],
+                                  "how": required_activity["how"].strip()},
+        }
+        indicators, why = self._build_indicator(skill, objectives, chunks)
+        if indicators is None:
+            print(f"  ⚠️  เพิ่ม {skill_id} ไม่สำเร็จ ({why}) — ไม่เปลี่ยนไฟล์")
+            return objectives
+
+        order = list(tpl.softskills())
+        objectives["softskills"] = sorted(
+            objectives.get("softskills", []) + [{**skill, "lesson_indicators": indicators}],
+            key=lambda s: order.index(s["id"]),
+        )
+        objectives["softskills_not_selected"] = [
+            s for s in objectives["softskills_not_selected"] if s["id"] != skill_id
+        ]
+        self._write(objectives, output_path)
+        print(f"  เพิ่ม {skill_id} แล้ว ✅")
+        return objectives
 
     def _consolidate(self, objectives: dict) -> dict:
         """ขั้น 3: หาคู่ขนาน/ซ้ำซ้อน แล้วรวมให้เหลือไม่เกิน MAX_SUB_LOS ข้อ (deterministic — ไม่พึ่งว่า
@@ -457,9 +816,9 @@ class Synthesizer:
             if len(ids) < 2:
                 continue
             merged_id.update(ids)
-            evidence = []
+            sources = []
             for i in ids:
-                evidence.extend(by_id[i].get("evidence_chunks", []))
+                sources.extend(by_id[i].get("source_chunks", []))
             new_subs.append({
                 "id":              ids[0],
                 "statement":       g.get("new_statement") or by_id[ids[0]]["statement"],
@@ -467,7 +826,7 @@ class Synthesizer:
                     "core" if any(by_id[i].get("tag") == "core" for i in ids) else "supporting"
                 ),
                 "type":            g.get("type") or by_id[ids[0]].get("type", "conceptual"),
-                "evidence_chunks": sorted(set(evidence)),
+                "source_chunks":   sort_labels(sources),
                 "prompt_group":    by_id[ids[0]].get("prompt_group"),
                 "content_type":    by_id[ids[0]].get("content_type"),
             })
@@ -495,9 +854,9 @@ class Synthesizer:
                 "tag":             "core" if (a.get("tag") == "core" or b.get("tag") == "core")
                                     else "supporting",
                 "type":            a.get("type", "conceptual"),
-                "evidence_chunks": sorted(set(
-                    a.get("evidence_chunks", []) + b.get("evidence_chunks", [])
-                )),
+                "source_chunks":   sort_labels(
+                    a.get("source_chunks", []) + b.get("source_chunks", [])
+                ),
                 "prompt_group":    a.get("prompt_group"),
                 "content_type":    a.get("content_type"),
             }]
@@ -522,12 +881,7 @@ class Synthesizer:
             if missing:
                 self._log("check", "warn", f"{lo['id']} rubric ขาดระดับ {missing}")
 
-        skills   = objectives.get("softskills", [])
-        ids      = {s.get("id") for s in skills}
-        expected = set(tpl.softskills())
-        if ids != expected:
-            self._log("check", "warn", f"soft skill ไม่ครบ: ขาด {sorted(expected - ids)}")
-        for sk in skills:
+        for sk in objectives.get("softskills", []):
             indicators = sk.get("lesson_indicators", {})
             missing = [lv for lv in ("1", "2", "3", "4", "5") if not indicators.get(lv)]
             if missing:
@@ -560,12 +914,16 @@ class Synthesizer:
                 lo["type"] = "conceptual"
             if lo.get("prompt_group") not in groups:
                 lo["prompt_group"] = groups[0] if len(groups) == 1 else None
-            # กันหลอน: evidence_chunks ต้องอ้างป้ายที่มีอยู่จริงในเนื้อหาเท่านั้น
-            bad = [c for c in lo.get("evidence_chunks", []) if c not in valid_chunk_ids]
+            # โมเดลอาจยังใช้ชื่อฟิลด์เก่า — ย้ายมาเป็น source_chunks แทนที่จะทิ้ง
+            if "evidence_chunks" in lo:
+                self._log("check", "warn", f"{lo.get('id')} ใช้ชื่อฟิลด์เก่า evidence_chunks → source_chunks")
+                lo.setdefault("source_chunks", lo.pop("evidence_chunks"))
+            # กันหลอน: source_chunks ต้องอ้างป้ายที่มีอยู่จริงในเนื้อหาเท่านั้น (ขั้น 4B ใช้ดึงเนื้อหา)
+            bad = [c for c in lo.get("source_chunks", []) if c not in valid_chunk_ids]
             if bad:
-                print(f"     ⚠️  {lo.get('id')}: evidence_chunks อ้างป้ายที่ไม่มีจริง {bad}")
-                self._log("check", "warn", f"{lo.get('id')} evidence_chunks ไม่มีจริง: {bad}")
-                lo["evidence_chunks"] = [c for c in lo.get("evidence_chunks", []) if c in valid_chunk_ids]
+                print(f"     ⚠️  {lo.get('id')}: source_chunks อ้างป้ายที่ไม่มีจริง {bad}")
+                self._log("check", "warn", f"{lo.get('id')} source_chunks ไม่มีจริง: {bad}")
+            lo["source_chunks"] = sort_labels(c for c in lo.get("source_chunks", []) if c in valid_chunk_ids)
 
         if "sub_los" in objectives:
             # ขั้น 3: consolidate (ไม่ต้องอ่านเนื้อหาเต็ม)
@@ -577,18 +935,21 @@ class Synthesizer:
             if needs_rubric:
                 self._add_hard_rubrics_for(objectives, groups, content, needs_rubric)
 
-            # ขั้น 4: soft skills (อ่าน cache ของ content)
-            objectives["softskills"]     = self._build_softskills(content, objectives)
-            objectives["prompt_groups"]  = groups
-            objectives["group_reason"]   = selection["group_reason"]
-            objectives["schema_version"] = SCHEMA_VERSION
+            # ขั้น 4: soft skills — 4A เลือกจากวัตถุประสงค์, 4B ตัวบ่งชี้ทีละสกิลจาก source_chunks
+            # (ไม่แนบเนื้อหาเต็มบท จึงไม่ผ่าน cache ของ content)
+            self.build_softskills(objectives, chunks)
+            objectives["prompt_groups"] = groups
+            objectives["group_reason"]  = selection["group_reason"]
             objectives.setdefault("missing_coverage", []).extend(selection["dropped_groups"])
 
             self._run_hallucination_checks(objectives)
 
         output_path = os.path.join(lesson_path, "objectives.json")
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(objectives, f, ensure_ascii=False, indent=2)
+        if "sub_los" in objectives:
+            self._write(objectives, output_path)
+        else:
+            with open(output_path, "w", encoding="utf-8") as f:
+                json.dump(objectives, f, ensure_ascii=False, indent=2)
 
         print(f"  บันทึก objectives.json แล้ว ✅")
         return objectives

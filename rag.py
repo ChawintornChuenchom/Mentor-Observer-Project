@@ -260,7 +260,7 @@ def lesson_full_text(lesson_path: str, client: OpenAI = None, cost_tracker=None)
     """อ่านไฟล์ชุดเดียวกับ RAG.index_files (.txt/.md/.docx/.pptx) เรียงตามชื่อไฟล์ แบ่ง chunk
     ตามลำดับเอกสารจริง (ไม่ใช่ตามความคล้ายแบบ RAG.query) แล้วติดป้าย [c1]…[cN] ต่อเนื่องข้ามไฟล์
 
-    คืน (labeled_text, chunks) — chunks ไม่มีป้าย ใช้เทียบว่า evidence_chunks ที่ LLM อ้างมีอยู่จริง
+    คืน (labeled_text, chunks) — chunks ไม่มีป้าย ใช้เทียบว่า source_chunks ที่ LLM อ้างมีอยู่จริง และดึงข้อความตามป้ายในขั้น 4B
     """
     lesson_path = Path(lesson_path)
     supported = {".txt", ".md", ".docx", ".pptx"}

@@ -88,9 +88,7 @@ OBSERVER_SOFT_PROMPT = """คุณคือ AI-Observer ประเมิน S
 - คะแนนสะท้อนจุดที่ดีที่สุดที่แสดงออกมา ไม่ใช่ค่าเฉลี่ย
 - การตอบเนื้อหาถูกตามขั้นตอนเป็นหลักฐานของ Sub LO ไม่ใช่ระดับสูงของ soft skill
 - ไม่มีโอกาสแสดง ≠ แสดงได้แย่ — ถ้าบทสนทนาไม่เปิดโอกาสให้แสดงสกิลนั้น ให้เป็น N/E ห้ามให้ 1
-
-ระดับคะแนนกลาง (ใช้กับทุกสกิล ห้ามเปลี่ยนความหมาย):
-{scale}
+- ใช้ตัวบ่งชี้ของบทเรียนเป็นเกณฑ์ของแต่ละระดับ
 
 ความหนักแน่นของหลักฐาน (evidence):
 - strong   = เห็นพฤติกรรมชัดเจนหลายครั้ง หรือทำเองโดยไม่ถูกชี้นำ
@@ -100,10 +98,10 @@ OBSERVER_SOFT_PROMPT = """คุณคือ AI-Observer ประเมิน S
 
 output เป็น JSON เท่านั้น ห้ามมี markdown — ครบทุกสกิลในรายการตัวบ่งชี้ key คือ id ของสกิล
 "e" = ประโยคสรุปเป็นภาษาพูดธรรมชาติ ไม่ใช่ศัพท์วิชาการ:
-{{
-  "S01": {{"level": 3, "label": null, "evidence": "moderate", "e": "..."}},
-  "S02": {{"level": null, "label": "N/E", "evidence": "none", "e": "..."}}
-}}"""
+{
+  "S01": {"level": 3, "label": null, "evidence": "moderate", "e": "..."},
+  "S02": {"level": null, "label": "N/E", "evidence": "none", "e": "..."}
+}"""
 
 
 def not_evaluable(summary: str = "") -> dict:
@@ -136,7 +134,7 @@ class Observer:
         self.objectives = objectives
         self.call_count = 0
         self.softskills = objectives.get("softskills", [])
-        self._soft_static = OBSERVER_SOFT_PROMPT.format(scale=tpl.central_scale())
+        self._soft_static = OBSERVER_SOFT_PROMPT
         self._soft_lesson = self._soft_lesson_block()
 
     def skill_ids(self) -> list[str]:
