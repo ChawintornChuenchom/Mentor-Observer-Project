@@ -1,0 +1,29 @@
+﻿timestamp,process,step,event,detail,model,in_tok,cached_tok,out_tok,cost_usd,cost_thb,balance_usd
+2026-10-04 02:41:28,resynth,read_content,info,"3 chunks, 2422 ตัวอักษร, โหมดเต็ม",,0,0,0,0.0,0.0,
+2026-10-04 02:41:33,resynth,select_groups,call,temperature=0.0,google/gemini-2.5-flash,0,0,0,0.0,0.0,
+2026-10-04 02:41:33,resynth,select_groups,cost,,google/gemini-2.5-flash,2472,2460,97,0.0005249,0.0178,
+2026-10-04 02:41:33,resynth,select_groups,result,groups=['P16'] reason=เนื้อหาเป็นการบรรยายประวัติศาสตร์ การกอบกู้เอกราช การสถาปนาราชธานี การบริหารจัดการบ้านเมืองในด้านต่างๆ ทั้งการเมือง เศรษฐกิจ สังคม และศิลปวัฒนธรรม ซึ่งเน้นการตีความเหตุการณ์และแนวคิดทางประวัติศาสตร์,,0,0,0,0.0,0.0,
+2026-10-04 02:41:44,resynth,lo_rubric,call,temperature=0.0,google/gemini-2.5-flash,0,0,0,0.0,0.0,
+2026-10-04 02:41:45,resynth,lo_rubric,cost,,google/gemini-2.5-flash,3087,3075,1589,0.0043246,0.147,
+2026-10-04 02:41:45,resynth,lo_rubric,result,4 sub_los,,0,0,0,0.0,0.0,
+2026-10-04 02:41:45,resynth,consolidate,skip,"{""skipped"": true, ""reason"": ""n ≤ MAX"", ""n"": 4}",,0,0,0,0.0,0.0,
+2026-10-04 02:41:45,resynth,main_lo,input,"บทเรียน: อาณาจักรธนบุรี
+
+sub_los:
+s1 [core, conceptual]: อธิบายปัจจัยสำคัญที่ทำให้สมเด็จพระเจ้าตากสินมหาราชทรงเลือกกรุงธนบุรีเป็นราชธานีใหม่ได้
+s2 [core, factual]: สรุปภารกิจหลักในการรวมชาติและการป้องกันประเทศของอาณาจักรธนบุรีได้
+s3 [core, conceptual]: อธิบายมาตรการทางเศรษฐกิจที่สำคัญของอาณาจักรธนบุรีในการฟื้นฟูประเทศได้
+s4 [supporting, factual]: ระบุและอธิบายความพยายามในการฟื้นฟูสังคมและศิลปวัฒนธรรมในสมัยธนบุรีได้
+
+missing_coverage:
+- (ไม่มี)",,0,0,0,0.0,0.0,
+2026-10-04 02:41:46,resynth,main_lo,call,temperature=0.0,google/gemini-2.5-flash,0,0,0,0.0,0.0,
+2026-10-04 02:41:46,resynth,main_lo,cost,,google/gemini-2.5-flash,362,0,62,0.0002636,0.009,
+2026-10-04 02:41:46,resynth,main_lo,output,"{""main_lo"": ""นักเรียนสามารถอธิบายปัจจัยการเลือกกรุงธนบุรีเป็นราชธานี ภารกิจในการรวมชาติและการป้องกันประเทศ รวมถึงมาตรการทางเศรษฐกิจที่สำคัญของอาณาจักรธนบุรีได้""}",,0,0,0,0.0,0.0,
+2026-10-04 02:41:46,resynth,main_lo,result,นักเรียนสามารถอธิบายปัจจัยการเลือกกรุงธนบุรีเป็นราชธานี ภารกิจในการรวมชาติและการป้องกันประเทศ รวมถึงมาตรการทางเศรษฐกิจที่สำคัญของอาณาจักรธนบุรีได้,,0,0,0,0.0,0.0,
+2026-10-04 02:41:50,resynth,soft_select,call,temperature=0.0,google/gemini-2.5-flash,0,0,0,0.0,0.0,
+2026-10-04 02:41:50,resynth,soft_select,cost,,google/gemini-2.5-flash,2824,0,842,0.0029522,0.1004,
+2026-10-04 02:41:51,resynth,soft_select,result,"selected=['S01'] not_selected=['S02', 'S03', 'S04', 'S05', 'S06', 'S07', 'S08', 'S09', 'S10', 'S11', 'S12']",,0,0,0,0.0,0.0,
+2026-10-04 02:41:54,resynth,soft_indicator_S01,call,temperature=0.0,google/gemini-2.5-flash,0,0,0,0.0,0.0,
+2026-10-04 02:41:54,resynth,soft_indicator_S01,cost,,google/gemini-2.5-flash,1991,0,455,0.0017348,0.059,
+2026-10-04 02:41:54,resynth,summary,close,start=48.741568723 end=48.741568723 actual_spent=0.0 tracked=0.0098001 untracked=-0.0098001 in_tok=10736 cached_tok=5535 out_tok=3045,,10736,5535,3045,0.0098001,0.3332,48.741568723

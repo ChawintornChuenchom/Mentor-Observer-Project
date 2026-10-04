@@ -58,7 +58,7 @@ OBSERVER_HARD_PROMPT = """คุณคือ AI-Observer ประเมิน�
 - 1 = ยังไม่ผ่าน มีหลักฐานว่าเข้าใจบ้างแต่ยังไม่พอ
 - 0 = มีความเข้าใจผิดที่สำคัญ
 - null = ยังไม่มีหลักฐานเพียงพอ
-ถ้า Sub LO มี rubric เฉพาะมาให้ ให้ใช้ rubric นั้นตัดสินระดับ (ความหมายระดับเหมือนข้างบน)
+ถ้า Main LO มี rubric เฉพาะมาให้ ให้ใช้ rubric นั้นตัดสินระดับ (ความหมายระดับเหมือนข้างบน)
 
 สำคัญมาก: คะแนนสะท้อนหลักฐาน "สะสมทั้ง session" ไม่ใช่แค่ข้อความล่าสุดที่เห็น
 นักเรียนอาจตอบเรื่องหนึ่งเมื่อหลาย turn ก่อน แล้วตอนนี้พูดอีกเรื่อง — ให้นับหลักฐานเดิมด้วย
@@ -86,7 +86,7 @@ OBSERVER_SOFT_PROMPT = """คุณคือ AI-Observer ประเมิน S
 กติกาทอง:
 - ประเมินเฉพาะสิ่งที่นักเรียนพูด/ทำเองเท่านั้น ไม่ใช่สิ่งที่ Mentor พูด ห้ามนับคำตอบที่ echo คำพูดของ Mentor
 - คะแนนสะท้อนจุดที่ดีที่สุดที่แสดงออกมา ไม่ใช่ค่าเฉลี่ย
-- การตอบเนื้อหาถูกตามขั้นตอนเป็นหลักฐานของ Sub LO ไม่ใช่ระดับสูงของ soft skill
+- การตอบเนื้อหาถูกตามขั้นตอนเป็นหลักฐานของ Main LO ไม่ใช่ระดับสูงของ soft skill
 - ไม่มีโอกาสแสดง ≠ แสดงได้แย่ — ถ้าบทสนทนาไม่เปิดโอกาสให้แสดงสกิลนั้น ให้เป็น N/E ห้ามให้ 1
 - ใช้ตัวบ่งชี้ของบทเรียนเป็นเกณฑ์ของแต่ละระดับ
 
@@ -142,7 +142,7 @@ class Observer:
 
     def _hard_lo_context(self, lo_list: list[str]) -> str:
         blocks = []
-        for lo in self.objectives.get("sub_los", []):
+        for lo in self.objectives.get("main_los", []):
             if lo["id"] not in lo_list:
                 continue
             block = f"- {lo['id']}: {lo['statement']}"
@@ -153,7 +153,7 @@ class Observer:
                 if rubric.get(level):
                     block += f"\n  {level} = {rubric[level]}"
             blocks.append(block)
-        return "Sub LO ที่ตรวจรอบนี้:\n" + "\n".join(blocks)
+        return "Main LO ที่ตรวจรอบนี้:\n" + "\n".join(blocks)
 
     def _soft_lesson_block(self) -> str:
         """ตัวบ่งชี้ของบทเรียนนี้ — คงที่ตลอดบทเรียน จึงอยู่ใน system prompt ได้"""

@@ -1,0 +1,17 @@
+﻿timestamp,process,step,event,detail,model,in_tok,cached_tok,out_tok,cost_usd,cost_thb,balance_usd
+2026-10-04 02:07:09,resynth,read_content,info,"3 chunks, 2422 ตัวอักษร, โหมดเต็ม",,0,0,0,0.0,0.0,
+2026-10-04 02:07:15,resynth,select_groups,cost,,google/gemini-2.5-flash,2472,2460,89,0.0005049,0.0172,
+2026-10-04 02:07:15,resynth,select_groups,result,groups=['P16'] reason=เนื้อหาหลักเป็นการบรรยายประวัติศาสตร์ สังคม วัฒนธรรม และเศรษฐกิจของอาณาจักรธนบุรี ซึ่งเป็นการตีความหลักฐานทางประวัติศาสตร์และอภิปรายแนวคิดที่เกี่ยวข้องกับยุคสมัยนั้นๆ,,0,0,0,0.0,0.0,
+2026-10-04 02:07:26,resynth,lo_rubric,cost,,google/gemini-2.5-flash,3106,3094,1727,0.00467175,0.1588,
+2026-10-04 02:07:26,resynth,lo_rubric,result,4 sub_los,,0,0,0,0.0,0.0,
+2026-10-04 02:07:27,resynth,consolidate,cost,,google/gemini-2.5-flash,472,0,16,0.0001816,0.0062,
+2026-10-04 02:07:33,resynth,soft_select,cost,,google/gemini-2.5-flash,2855,0,1076,0.0035465,0.1206,
+2026-10-04 02:07:33,resynth,soft_select,warn,S04 reason ไม่อ้าง sub_lo id ที่ link ไว้ (เตือนเท่านั้น),,0,0,0,0.0,0.0,
+2026-10-04 02:07:33,resynth,soft_select,result,"selected=['S01', 'S04', 'S10'] not_selected=['S02', 'S03', 'S05', 'S06', 'S07', 'S08', 'S09', 'S11', 'S12']",,0,0,0,0.0,0.0,
+2026-10-04 02:07:36,resynth,soft_indicator_S01,cost,,google/gemini-2.5-flash,1558,0,374,0.0014024,0.0477,
+2026-10-04 02:07:36,resynth,soft_indicator_S01,parse_error,"{""feasible"": true, ""lesson_indicators"": {""1"": ""รับฟังข้อเสนอที่ว่าควรกลับไปฟื้นฟูอยุธยา เพราะมีความรุ่งเรืองกว่า โดยไม่ตั้งข้อสงสัยหรือถามหาเหตุผลอื่น"", ""2"": ""เมื่อ Mentor ชี้ให้เห็นว่ามีการตัดสินใจเล",,0,0,0,0.0,0.0,
+2026-10-04 02:07:36,resynth,soft_indicator_S01,warn,S01: parse JSON ไม่ได้,,0,0,0,0.0,0.0,
+2026-10-04 02:07:39,resynth,soft_indicator_S01,cost,,google/gemini-2.5-flash,1558,0,357,0.0013599,0.0462,
+2026-10-04 02:07:43,resynth,soft_indicator_S04,cost,,google/gemini-2.5-flash,2626,0,558,0.0021828,0.0742,
+2026-10-04 02:07:47,resynth,soft_indicator_S10,cost,,google/gemini-2.5-flash,1862,0,429,0.0016311,0.0555,
+2026-10-04 02:07:47,resynth,summary,close,start=48.757049676 end=48.757049676 actual_spent=0.0 tracked=0.01548095 untracked=-0.01548095 in_tok=16509 cached_tok=5554 out_tok=4626,,16509,5554,4626,0.01548095,0.5264,48.757049676

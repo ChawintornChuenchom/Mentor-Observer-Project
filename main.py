@@ -130,11 +130,11 @@ def print_objectives(objectives: dict):
         if objectives.get("group_reason"):
             print(f"   {objectives['group_reason']}")
 
-    print(f"\n📋 Main LO:\n  {objectives.get('main_lo', '-')}")
+    print(f"\n📋 Summary:\n  {objectives.get('summary', '-')}")
 
-    sub_los = objectives.get("sub_los", [])
-    print(f"\nSub LOs ({len(sub_los)} ข้อ):")
-    for lo in sub_los:
+    main_los = objectives.get("main_los", [])
+    print(f"\nMain LOs ({len(main_los)} ข้อ):")
+    for lo in main_los:
         tag = "⭐" if lo.get("tag") == "core" else "  "
         print(f"  {tag} {lo['id']}: {lo['statement']}")
         rubric = lo.get("rubric") or {}
@@ -146,8 +146,8 @@ def print_objectives(objectives: dict):
     print(f"\n🧠 Soft skill ที่เลือก: {len(soft)} สกิล")
     for s in soft:
         act = s.get("required_activity") or {}
-        print(f"  {s['id']} ← {', '.join(s.get('linked_sub_los', []))}: {s.get('reason', '')}")
-        print(f"       กิจกรรม ({act.get('sub_lo', '-')}): {act.get('how', '-')}")
+        print(f"  {s['id']} ← {', '.join(s.get('linked_main_los', []))}: {s.get('reason', '')}")
+        print(f"       กิจกรรม ({act.get('main_lo', '-')}): {act.get('how', '-')}")
         for level in ("1", "2", "3", "4", "5"):
             print(f"       {level} = {s.get('lesson_indicators', {}).get(level, '')}")
     not_selected = objectives.get("softskills_not_selected", [])

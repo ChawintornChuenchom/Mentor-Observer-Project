@@ -28,15 +28,15 @@ pip install -r requirements.txt
 
 | ฟิลด์ | ความหมาย |
 |---|---|
-| `main_lo`, `sub_los[]` | วัตถุประสงค์หลัก + Sub LO (≤6) พร้อม `observable_evidence`, `mentor_activity`, `rubric` 0–3 |
-| `sub_los[].source_chunks` | ป้าย `[cN]` ของเนื้อหาที่ Sub LO นั้นอยู่ (เรียงตามเลข) — ขั้น 4B ดึงข้อความตามป้ายนี้ |
-| `softskills[]` | soft skill ที่เลือกจากวัตถุประสงค์ 0–5 สกิล: `id` (S01–S12), `linked_sub_los`, `reason`, `required_activity: {sub_lo, how}`, `lesson_indicators` 1–5 |
+| `summary`, `main_los[]` | สรุปวัตถุประสงค์ของบท 1 ประโยค + Main LO (≤6) พร้อม `observable_evidence`, `mentor_activity`, `rubric` 0–3 |
+| `main_los[].source_chunks` | ป้าย `[cN]` ของเนื้อหาที่ Main LO นั้นอยู่ (เรียงตามเลข) — ขั้น 4B ดึงข้อความตามป้ายนี้ |
+| `softskills[]` | soft skill ที่เลือกจากวัตถุประสงค์ 0–5 สกิล: `id` (S01–S12), `linked_main_los`, `reason`, `required_activity: {main_lo, how}`, `lesson_indicators` 1–5 |
 | `softskills_not_selected[]` | สกิลที่ไม่เลือก `{id, reason}` — ดึงกลับมาได้ด้วย `resynthesize.py` โหมด "ดึง soft skill ที่ไม่ถูกเลือกกลับมา" |
 | `prompt_groups`, `group_reason`, `missing_coverage` | มุมมองการประเมิน P01–P18 ที่เลือก และเนื้อหาที่วัดจากบทสนทนาไม่ได้ |
 
 ขั้นสร้าง soft skill (รายละเอียดใน `templates/softskills/_selection_prompt.md`):
-- **4A** เลือกสกิลจาก main_lo + sub_los ตาม `templates/softskills/_index.md` (ไม่ส่งเนื้อหาบทเรียน) → โค้ดตรวจผล
+- **4A** เลือกสกิลจาก summary + main_los ตาม `templates/softskills/_index.md` (ไม่ส่งเนื้อหาบทเรียน) → โค้ดตรวจผล
 - **4B** ต่อสกิลที่ผ่าน: เขียนตัวบ่งชี้ 1–5 จาก rubric ของไฟล์ S + เนื้อหาตาม `source_chunks`
-  ของ sub_lo ที่ link → เขียนไม่ได้ (`feasible: false`) หรือไม่ครบหลังลองใหม่ ย้ายไป `softskills_not_selected`
+  ของ main_lo ที่ link → เขียนไม่ได้ (`feasible: false`) หรือไม่ครบหลังลองใหม่ ย้ายไป `softskills_not_selected`
 
-`resynthesize.py` มี 3 โหมด: สร้างใหม่ทั้งหมด · สร้างเฉพาะ soft skill ใหม่ (ขั้น 4 จาก sub_los เดิม) · ดึงสกิลที่ไม่ถูกเลือกกลับมา
+`resynthesize.py` มี 3 โหมด: สร้างใหม่ทั้งหมด · สร้างเฉพาะ soft skill ใหม่ (ขั้น 4 จาก main_los เดิม) · ดึงสกิลที่ไม่ถูกเลือกกลับมา

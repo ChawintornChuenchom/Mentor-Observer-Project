@@ -45,24 +45,24 @@ def build_static_system_prompt(character_text: str, objectives: dict) -> str:
     ส่วนที่เปลี่ยนทุกเทิร์นให้ไปแนบท้ายข้อความ user ล่าสุดแทน
     """
     # วิธีปรับกิจกรรมเพื่อเปิดโอกาสให้ soft skill แสดงออก — ไม่มีโอกาส = Observer ประเมินไม่ได้ (N/E)
-    # แสดงใต้ sub_lo ที่ required_activity ระบุ เพราะเป็นการปรับกิจกรรมของ sub_lo นั้น ไม่ใช่กิจกรรมแยก
+    # แสดงใต้ main_lo ที่ required_activity ระบุ เพราะเป็นการปรับกิจกรรมของ main_lo นั้น ไม่ใช่กิจกรรมแยก
     names = {sid: s["name"] for sid, s in tpl.softskills().items()}
     soft_by_lo: dict[str, list[str]] = {}
     for sk in objectives.get("softskills", []):
         act = sk.get("required_activity") or {}
-        if act.get("sub_lo") and act.get("how"):
-            soft_by_lo.setdefault(act["sub_lo"], []).append(
+        if act.get("main_lo") and act.get("how"):
+            soft_by_lo.setdefault(act["main_lo"], []).append(
                 f"    สำหรับ soft skill {sk['id']} ({names.get(sk['id'], sk['id'])}): {act['how']}"
             )
 
-    sub_lo_lines = []
-    for lo in objectives.get("sub_los", []):
+    main_lo_lines = []
+    for lo in objectives.get("main_los", []):
         lo_type = lo.get("type", "conceptual")
-        sub_lo_lines.append(f"- {lo['id']} [{lo_type}]: {lo['statement']}")
+        main_lo_lines.append(f"- {lo['id']} [{lo_type}]: {lo['statement']}")
         if lo.get("mentor_activity"):
-            sub_lo_lines.append(f"    กิจกรรมเปิดโอกาสแสดงหลักฐาน: {lo['mentor_activity']}")
-        sub_lo_lines.extend(soft_by_lo.get(lo["id"], []))
-    sub_los = "\n".join(sub_lo_lines)
+            main_lo_lines.append(f"    กิจกรรมเปิดโอกาสแสดงหลักฐาน: {lo['mentor_activity']}")
+        main_lo_lines.extend(soft_by_lo.get(lo["id"], []))
+    main_los = "\n".join(main_lo_lines)
 
     return f"""คุณคือ AI-Mentor ตามคาแรกเตอร์และกฎต่อไปนี้:
 
@@ -70,17 +70,17 @@ def build_static_system_prompt(character_text: str, objectives: dict) -> str:
 
 ---
 บทเรียน: {objectives.get('lesson_title', '')}
-วัตถุประสงค์หลัก: {objectives.get('main_lo', '')}
+สรุปวัตถุประสงค์ของบท: {objectives.get('summary', '')}
 
-Sub LO ที่ต้องสอนให้ครบ (ในวงเล็บเหลี่ยมคือประเภท):
-{sub_los}
+Main LO ที่ต้องสอนให้ครบ (ในวงเล็บเหลี่ยมคือประเภท):
+{main_los}
 
-ประเภทของ Sub LO:
+ประเภทของ Main LO:
 - [conceptual] = วัดความเข้าใจ / วิเคราะห์ / เปรียบเทียบ / ประยุกต์
 - [factual] = ข้อมูล / นิยาม / ตัวเลข-ชื่อ / โครงสร้าง ที่ต้องจำตรงตัว
   → บอกข้อมูลจาก [บริบทอ้างอิง] ตรงๆ ได้เลย ไม่ต้องให้ทาย แล้วค่อยถามต่อยอดเชิงเข้าใจ
-"สำหรับ soft skill …" ใต้ Sub LO = วิธีปรับกิจกรรมของ Sub LO นั้น ใช้ตอนสอนข้อนั้น
-  (ปรับรูปแบบการถามเท่านั้น ยังต้องสอนให้ Sub LO บรรลุ และห้ามใช้ข้อมูลนอกบทเรียน)
+"สำหรับ soft skill …" ใต้ Main LO = วิธีปรับกิจกรรมของ Main LO นั้น ใช้ตอนสอนข้อนั้น
+  (ปรับรูปแบบการถามเท่านั้น ยังต้องสอนให้ Main LO บรรลุ และห้ามใช้ข้อมูลนอกบทเรียน)
 
 ---
 วิธีสอนแต่ละหัวข้อ (ทำตามลำดับ ห้ามข้ามขั้น 1):
@@ -164,7 +164,7 @@ output ต้องเป็น JSON เสมอ ห้ามมี markdown:
   "trigger_lo": ["s1"] หรือ []
 }}
 
-current_lo = id ของ Sub LO ที่กำลังสอนอยู่ ณ ข้อความนี้ (เลือกจากรายการด้านบน 1 ค่าเสมอ)"""
+current_lo = id ของ Main LO ที่กำลังสอนอยู่ ณ ข้อความนี้ (เลือกจากรายการด้านบน 1 ค่าเสมอ)"""
 
 
 def summarize_history(client: OpenAI, messages: list, prev_summary: str | None,
@@ -291,10 +291,10 @@ def load_or_make_greeting(client: OpenAI, lesson_path: Path, character_name: str
     return msg
 
 
-def all_core_passed(sub_los_list: list, hard_scores: dict) -> bool:
-    """นักเรียนผ่านครบทุก sub_lo ที่ tag = core (ถ้าไม่มี core เลย ใช้ทุกข้อ)"""
-    targets = [lo["id"] for lo in sub_los_list if lo.get("tag") == "core"] \
-        or [lo["id"] for lo in sub_los_list]
+def all_core_passed(main_los_list: list, hard_scores: dict) -> bool:
+    """นักเรียนผ่านครบทุก main_lo ที่ tag = core (ถ้าไม่มี core เลย ใช้ทุกข้อ)"""
+    targets = [lo["id"] for lo in main_los_list if lo.get("tag") == "core"] \
+        or [lo["id"] for lo in main_los_list]
     return bool(targets) and all(hard_scores.get(i) == 3 for i in targets)
 
 
@@ -391,16 +391,16 @@ def main(client: OpenAI, api_key: str | None = None, student_id: str = "anonymou
     )
 
     # ── state ระดับ session ──
-    sub_los_list = objectives.get("sub_los", [])
-    sub_lo_map   = {lo["id"]: lo for lo in sub_los_list}
-    current_sub_lo = next(
-        (lo for lo in sub_los_list if lo.get("tag") == "core"),
-        sub_los_list[0] if sub_los_list else None
+    main_los_list = objectives.get("main_los", [])
+    main_lo_map   = {lo["id"]: lo for lo in main_los_list}
+    current_main_lo = next(
+        (lo for lo in main_los_list if lo.get("tag") == "core"),
+        main_los_list[0] if main_los_list else None
     )
 
     chat_history     = []
-    hard_scores      = {lo["id"]: None for lo in sub_los_list}
-    hard_best        = {lo["id"]: None for lo in sub_los_list}   # ผลของ session = คะแนนสูงสุดที่เคยได้
+    hard_scores      = {lo["id"]: None for lo in main_los_list}
+    hard_best        = {lo["id"]: None for lo in main_los_list}   # ผลของ session = คะแนนสูงสุดที่เคยได้
     pending_feedback = None
     pending_note     = None   # ข้อความสั่ง Mentor รอบถัดไป (เช่น แจ้งเรียนจบ)
     done_announced   = False  # แจ้ง "ผ่านครบทุกข้อ" ไปแล้วหรือยัง
@@ -509,9 +509,9 @@ def main(client: OpenAI, api_key: str | None = None, student_id: str = "anonymou
 
         # ── RAG: ผสม statement ของหัวข้อปัจจุบันเข้ากับสิ่งที่นักเรียนพิมพ์ ──
         # กันกรณีนักเรียนพิมพ์เรื่องนอกเนื้อหา แล้วได้ context ที่ไม่เกี่ยวเลย
-        if current_sub_lo:
-            lo_answers.setdefault(current_sub_lo["id"], []).append(user_input)
-            rag_query = f"{current_sub_lo['statement']} {user_input}"
+        if current_main_lo:
+            lo_answers.setdefault(current_main_lo["id"], []).append(user_input)
+            rag_query = f"{current_main_lo['statement']} {user_input}"
         else:
             rag_query = user_input
         rag_context = "\n\n".join(rag.query(rag_query, n_results=5))
@@ -545,10 +545,10 @@ def main(client: OpenAI, api_key: str | None = None, student_id: str = "anonymou
 
         # ข้อความล่าสุด: แนบหัวข้อปัจจุบัน + RAG context ท้ายสุด (ส่วนที่เปลี่ยนทุกเทิร์น)
         lo_marker = ""
-        if current_sub_lo:
+        if current_main_lo:
             # ดึงคำตอบเดิมของนักเรียนในหัวข้อนี้มาแปะสดๆ ทุก turn (ไม่รวมข้อความล่าสุด ซึ่งอยู่ท้าย
             # last_content อยู่แล้ว) — กันไม่ให้ Mentor ต้องพึ่งการ "จำ" เอง แล้วถามซ้ำ/ตัดสินคำตอบผิด
-            prior_answers = lo_answers.get(current_sub_lo["id"], [])[:-1]
+            prior_answers = lo_answers.get(current_main_lo["id"], [])[:-1]
             answered_block = ""
             if prior_answers:
                 bullets = "\n".join(f'  - "{a}"' for a in prior_answers[-6:])
@@ -557,9 +557,9 @@ def main(client: OpenAI, api_key: str | None = None, student_id: str = "anonymou
                     f"{bullets}\n"
                 )
             lo_marker = (
-                f"[หัวข้อที่กำลังสอน: {current_sub_lo['id']} "
-                f"({current_sub_lo.get('type', 'conceptual')}) — "
-                f"{current_sub_lo['statement']}]\n"
+                f"[หัวข้อที่กำลังสอน: {current_main_lo['id']} "
+                f"({current_main_lo.get('type', 'conceptual')}) — "
+                f"{current_main_lo['statement']}]\n"
                 f"{answered_block}"
             )
         last_content = (
@@ -591,7 +591,7 @@ def main(client: OpenAI, api_key: str | None = None, student_id: str = "anonymou
             mentor_data = parse_json(raw)
         except json.JSONDecodeError:
             mentor_data = salvage_mentor(
-                raw, current_sub_lo["id"] if current_sub_lo else None
+                raw, current_main_lo["id"] if current_main_lo else None
             )
 
         reply        = mentor_data.get("reply", "")
@@ -600,9 +600,9 @@ def main(client: OpenAI, api_key: str | None = None, student_id: str = "anonymou
 
         # อัปเดตหัวข้อปัจจุบันตามที่ Mentor ระบุ
         new_lo = mentor_data.get("current_lo")
-        if new_lo in sub_lo_map:
-            current_sub_lo = sub_lo_map[new_lo]
-        event["lo"] = current_sub_lo["id"] if current_sub_lo else None
+        if new_lo in main_lo_map:
+            current_main_lo = main_lo_map[new_lo]
+        event["lo"] = current_main_lo["id"] if current_main_lo else None
 
         # track Mentor cost
         current_row = None
@@ -674,7 +674,7 @@ def main(client: OpenAI, api_key: str | None = None, student_id: str = "anonymou
             pending_feedback = feedback
 
             # นักเรียนผ่านครบทุกวัตถุประสงค์หลัก → สั่ง Mentor แจ้งรอบถัดไป (ครั้งเดียว)
-            if not done_announced and all_core_passed(sub_los_list, hard_scores):
+            if not done_announced and all_core_passed(main_los_list, hard_scores):
                 done_announced = True
                 pending_note   = DONE_NOTE
                 print("  [🎉 นักเรียนผ่านครบทุกวัตถุประสงค์หลักแล้ว]")

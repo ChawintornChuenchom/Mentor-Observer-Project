@@ -1,4 +1,4 @@
-"""ทดสอบ soft skill v4: ตัวตรวจ 4A/4B, การดึงข้อความตามป้าย, consolidate, Observer soft, Mentor
+"""ทดสอบ soft skill v4: ตัวตรวจ 4A/4B, การดึงข้อความตามป้าย, Observer soft, Mentor (consolidate อยู่ใน test_consolidate.py)
 ใช้ LLM ปลอม ไม่เรียก API จริง"""
 import json
 from types import SimpleNamespace
@@ -13,8 +13,8 @@ from synthesizer import (Synthesizer, chunks_by_label, validate_selection, valid
 
 SKILLS = list(tpl.softskills())
 
-# sub_los บทธนบุรี (ตามเอกสาร soft skill v4 ข้อ 7)
-THONBURI_SUB_LOS = [
+# main_los บทธนบุรี (ตามเอกสาร soft skill v4 ข้อ 7)
+THONBURI_MAIN_LOS = [
     {"id": "s1", "type": "factual", "tag": "core", "source_chunks": ["c1"],
      "statement": "นักเรียนสามารถเรียงลำดับเหตุการณ์ตั้งแต่เสียกรุง กอบกู้เอกราช จนถึงอายุของอาณาจักรธนบุรีได้",
      "mentor_activity": "ให้เรียงเหตุการณ์", "observable_evidence": "เรียงเหตุการณ์ได้"},
@@ -31,17 +31,17 @@ THONBURI_SUB_LOS = [
      "statement": "นักเรียนสามารถอธิบายการฟื้นฟูสังคมวัฒนธรรมกับความมั่นคงทางจิตใจได้",
      "mentor_activity": "ถามการฟื้นฟู", "observable_evidence": "อธิบายการฟื้นฟู"},
 ]
-SUB_IDS = [lo["id"] for lo in THONBURI_SUB_LOS]
+SUB_IDS = [lo["id"] for lo in THONBURI_MAIN_LOS]
 
 
 def sel(sid, linked=("s2",), act_lo="s2", how="ให้วิจารณ์ข้อสรุป", reason=None):
-    return {"id": sid, "linked_sub_los": list(linked),
+    return {"id": sid, "linked_main_los": list(linked),
             "reason": reason if reason is not None else f"{linked[0] if linked else ''} ให้วิเคราะห์",
-            "required_activity": {"sub_lo": act_lo, "how": how}}
+            "required_activity": {"main_lo": act_lo, "how": how}}
 
 
 def rest(*chosen):
-    return [{"id": s, "reason": "ไม่มี sub_lo"} for s in SKILLS if s not in chosen]
+    return [{"id": s, "reason": "ไม่มี main_lo"} for s in SKILLS if s not in chosen]
 
 
 def assert_partition(selected, not_selected):
@@ -78,7 +78,7 @@ def test_select_bad_id_dropped_and_missing_filled():
     assert_partition(selected, not_selected)
 
 
-def test_select_activity_sub_lo_not_in_linked_moves_to_not_selected():
+def test_select_activity_main_lo_not_in_linked_moves_to_not_selected():
     result = {"softskills": [sel("S01", linked=["s2"], act_lo="s3")],
               "softskills_not_selected": rest("S01")}
     selected, not_selected, _ = validate_selection(result, SUB_IDS, SKILLS)
@@ -110,7 +110,7 @@ def test_select_in_both_sides_counts_as_not_selected():
     assert_partition(selected, not_selected)
 
 
-def test_select_reason_without_sub_lo_id_only_warns():
+def test_select_reason_without_main_lo_id_only_warns():
     result = {"softskills": [sel("S01", reason="วิเคราะห์เหตุผลหลายด้าน")],
               "softskills_not_selected": rest("S01")}
     selected, _, log = validate_selection(result, SUB_IDS, SKILLS)
@@ -181,7 +181,7 @@ class FakeCompletions:
         self.responses = list(responses)
         self.calls = []
 
-    def create(self, model, messages, extra_body=None):
+    def create(self, model, messages, **kwargs):
         self.calls.append(messages)
         content = self.responses.pop(0)
         if not isinstance(content, str):
@@ -194,29 +194,9 @@ def fake_client(responses):
     return SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions(responses)))
 
 
-# ── 4. consolidate ──────────────────────────────────────────
-def test_consolidate_unions_source_chunks():
-    subs = [dict(lo) for lo in THONBURI_SUB_LOS]
-    subs[1]["source_chunks"] = ["c10", "c1"]
-    client = fake_client([{"merged_groups": [
-        {"from_ids": ["s2", "s3"], "new_statement": "รวม", "tag": "core", "type": "conceptual"}]}])
-    out = Synthesizer(client)._consolidate({"sub_los": subs})
-    merged = next(lo for lo in out["sub_los"] if lo["statement"] == "รวม")
-    assert merged["source_chunks"] == ["c1", "c2", "c10"]
-
-
-def test_mechanical_merge_unions_source_chunks():
-    subs = [dict(lo, id=f"s{i}", source_chunks=[f"c{i}"]) for i, lo in
-            enumerate(THONBURI_SUB_LOS + THONBURI_SUB_LOS[:3], start=1)]   # 8 ข้อ > 6
-    subs[-1]["source_chunks"] = ["c10"]
-    out = Synthesizer(fake_client(["not json"]))._consolidate({"sub_los": subs})
-    assert len(out["sub_los"]) == 6
-    assert out["sub_los"][-1]["source_chunks"] == ["c6", "c7", "c10"]
-
-
 # ── 4A + 4B ผ่าน Synthesizer ─────────────────────────────────
 def test_build_softskills_sends_only_linked_chunks():
-    objectives = {"main_lo": "หลัก", "sub_los": THONBURI_SUB_LOS}
+    objectives = {"summary": "หลัก", "main_los": THONBURI_MAIN_LOS}
     chunks = ["เนื้อหา c1 ธนบุรีใกล้ทะเล", "เนื้อหา c2 สงคราม", "เนื้อหา c3 วัฒนธรรม"]
     client = fake_client([
         {"softskills": [sel("S01")], "softskills_not_selected": rest("S01")},
@@ -234,7 +214,7 @@ def test_build_softskills_sends_only_linked_chunks():
 
 
 def test_build_indicator_retries_then_moves_to_not_selected():
-    objectives = {"main_lo": "หลัก", "sub_los": THONBURI_SUB_LOS}
+    objectives = {"summary": "หลัก", "main_los": THONBURI_MAIN_LOS}
     client = fake_client([
         {"softskills": [sel("S01")], "softskills_not_selected": rest("S01")},
         {"feasible": True, "lesson_indicators": {"1": "a"}},
@@ -248,7 +228,7 @@ def test_build_indicator_retries_then_moves_to_not_selected():
 
 
 def test_check_before_write_rejects_evidence_chunks():
-    objectives = {"sub_los": [{"id": "s1", "evidence_chunks": ["c1"]}],
+    objectives = {"main_los": [{"id": "s1", "evidence_chunks": ["c1"]}],
                   "softskills": [], "softskills_not_selected": rest()}
     with pytest.raises(AssertionError):
         check_before_write(objectives, SKILLS)
@@ -256,13 +236,13 @@ def test_check_before_write_rejects_evidence_chunks():
 
 def test_add_softskill_moves_from_not_selected(tmp_path):
     (tmp_path / "content.txt").write_text("เนื้อหาบทเรียน", encoding="utf-8")
-    objectives = {"main_lo": "หลัก", "sub_los": THONBURI_SUB_LOS,
+    objectives = {"summary": "หลัก", "main_los": THONBURI_MAIN_LOS,
                   "softskills": [], "softskills_not_selected": rest()}
     (tmp_path / "objectives.json").write_text(json.dumps(objectives, ensure_ascii=False),
                                               encoding="utf-8")
     client = fake_client([{"feasible": True, "lesson_indicators": GOOD}])
     out = Synthesizer(client).add_softskill(str(tmp_path), "S08", ["s2"],
-                                            {"sub_lo": "s2", "how": "ให้ชั่งหลักการ"})
+                                            {"main_lo": "s2", "how": "ให้ชั่งหลักการ"})
     assert [s["id"] for s in out["softskills"]] == ["S08"]
     saved = json.loads((tmp_path / "objectives.json").read_text(encoding="utf-8"))
     assert "S08" not in {s["id"] for s in saved["softskills_not_selected"]}
@@ -271,20 +251,20 @@ def test_add_softskill_moves_from_not_selected(tmp_path):
 def test_add_softskill_refuses_beyond_max(tmp_path):
     (tmp_path / "content.txt").write_text("เนื้อหาบทเรียน", encoding="utf-8")
     chosen = ["S01", "S02", "S03", "S04", "S05"]
-    objectives = {"main_lo": "หลัก", "sub_los": THONBURI_SUB_LOS,
+    objectives = {"summary": "หลัก", "main_los": THONBURI_MAIN_LOS,
                   "softskills": [{**sel(s), "lesson_indicators": GOOD} for s in chosen],
                   "softskills_not_selected": rest(*chosen)}
     (tmp_path / "objectives.json").write_text(json.dumps(objectives, ensure_ascii=False),
                                               encoding="utf-8")
     with pytest.raises(ValueError):
         Synthesizer(fake_client([])).add_softskill(str(tmp_path), "S08", ["s2"],
-                                                  {"sub_lo": "s2", "how": "ให้ชั่งหลักการ"})
+                                                  {"main_lo": "s2", "how": "ให้ชั่งหลักการ"})
 
 
 # ── 5. Observer soft ────────────────────────────────────────
 def three_skill_objectives():
     return {
-        "sub_los": THONBURI_SUB_LOS,
+        "main_los": THONBURI_MAIN_LOS,
         "softskills": [
             {**sel(sid), "lesson_indicators": {lv: f"{sid}-{lv}" for lv in "12345"}}
             for sid in ("S01", "S04", "S05")
@@ -309,13 +289,13 @@ def test_observer_normalize_returns_only_selected_keys():
 
 
 def test_observer_skips_when_no_softskills():
-    obs = Observer(client=None, objectives={"sub_los": THONBURI_SUB_LOS, "softskills": []})
+    obs = Observer(client=None, objectives={"main_los": THONBURI_MAIN_LOS, "softskills": []})
     assert obs.evaluate_soft([]) == {}
 
 
 # ── 6. Mentor ───────────────────────────────────────────────
-def test_mentor_shows_required_activity_under_its_sub_lo():
-    objectives = {"lesson_title": "ธนบุรี", "main_lo": "หลัก", "sub_los": THONBURI_SUB_LOS,
+def test_mentor_shows_required_activity_under_its_main_lo():
+    objectives = {"lesson_title": "ธนบุรี", "summary": "หลัก", "main_los": THONBURI_MAIN_LOS,
                   "softskills": [{**sel("S01", linked=["s2", "s3"], act_lo="s3",
                                         how="เสนอข้อสรุปให้วิจารณ์"),
                                   "lesson_indicators": GOOD}]}

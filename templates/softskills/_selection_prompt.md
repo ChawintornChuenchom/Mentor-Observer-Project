@@ -4,39 +4,39 @@
 โค้ดดึงไปใช้เฉพาะหัวข้อ "ตัวอย่าง lesson_indicators" ท้ายไฟล์นี้ (ห้ามเปลี่ยนชื่อหัวข้อ)
 
 ## หลักการ
-soft skill ถูกเลือกจากวัตถุประสงค์ของบท (main_lo + sub_los) เพราะถ้าวัตถุประสงค์ไม่ให้นักเรียนทำสิ่งที่สกิลต้องใช้
+soft skill ถูกเลือกจากวัตถุประสงค์ของบท (summary + main_los) เพราะถ้าวัตถุประสงค์ไม่ให้นักเรียนทำสิ่งที่สกิลต้องใช้
 Observer ก็ประเมินสกิลนั้นไม่ได้ สกิลที่ไม่ถูกเลือกเก็บไว้พร้อมเหตุผล เพื่อดึงกลับมาภายหลังได้
 
 ## ขั้น 4A — เลือกสกิล (1 ครั้งต่อบท)
-- Input: `_index.md` ทั้งไฟล์ + main_lo + sub_los (id, statement, type, tag, mentor_activity, observable_evidence)
+- Input: `_index.md` ทั้งไฟล์ + summary + main_los (id, statement, type, tag, mentor_activity, observable_evidence)
 - **ไม่ส่งเนื้อหาบทเรียน** — ตัดสินจากวัตถุประสงค์เท่านั้น
 - ตัดสินทีละสกิล S01–S12 ว่าเลือกหรือไม่ ตาม "วิธีเลือก" ใน `_index.md` · เลือกได้ 0–5 สกิล ไม่มีขั้นต่ำ
-- สกิลที่เลือก: `linked_sub_los` (อย่างน้อย 1), `reason` ที่อ้าง sub_lo id,
-  `required_activity = {sub_lo, how}` — วิธีปรับ mentor_activity ของ sub_lo นั้น ห้ามเพิ่มเรื่องหรือข้อมูลนอกบทเรียน
-- สกิลที่ไม่เลือก: `reason` 1 ประโยคว่า sub_los ขาดอะไร
+- สกิลที่เลือก: `linked_main_los` (อย่างน้อย 1), `reason` ที่อ้าง main_lo id,
+  `required_activity = {main_lo, how}` — วิธีปรับ mentor_activity ของ main_lo นั้น ห้ามเพิ่มเรื่องหรือข้อมูลนอกบทเรียน
+- สกิลที่ไม่เลือก: `reason` 1 ประโยคว่า main_los ขาดอะไร
 - โค้ดตรวจผล (id ถูกรูป, ครบ 12 ครั้งเดียว, ≤5, linked/required_activity ถูกต้อง) — ไม่ผ่านย้ายไป not_selected
 
 ## ขั้น 4B — เขียนตัวบ่งชี้ (1 ครั้งต่อสกิลที่เลือก)
 - Input: ไฟล์ S ของสกิลนั้น (ความหมาย, ตัวบ่งชี้ในข้อความของผู้เรียน, Rubric กลาง, ไม่นับเป็นหลักฐาน)
-  + sub_los ที่ link + `required_activity.how` + ข้อความของป้าย `source_chunks` ของ sub_los ที่ link
+  + main_los ที่ link + `required_activity.how` + ข้อความของป้าย `source_chunks` ของ main_los ที่ link
 - lesson_indicators ระดับ 1–5 = rubric ระดับเดียวกันของสกิล ยกตัวอย่างด้วยเนื้อหาบทนี้
   ห้ามเปลี่ยนความหมาย ห้ามเพิ่มเงื่อนไข ห้ามทำให้ยาก/ง่ายกว่า rubric
 - วัดพฤติกรรมของสกิล ไม่ใช่ความถูกต้องของเนื้อหา
-- เขียนระดับ 3 ที่ผูกกับ sub_los และเนื้อหาไม่ได้ → `feasible: false` → สกิลย้ายไป not_selected
+- เขียนระดับ 3 ที่ผูกกับ main_los และเนื้อหาไม่ได้ → `feasible: false` → สกิลย้ายไป not_selected
 
 ## Output ใน objectives.json
 ```json
 "softskills": [
   {
     "id": "S01",
-    "linked_sub_los": ["s2"],
+    "linked_main_los": ["s2"],
     "reason": "s2 ให้วิเคราะห์เหตุผลหลายด้าน จึงวิจารณ์ข้อสรุปที่ให้เหตุผลไม่ครบได้",
-    "required_activity": {"sub_lo": "s2", "how": "..."},
+    "required_activity": {"main_lo": "s2", "how": "..."},
     "lesson_indicators": {"1": "...", "2": "...", "3": "...", "4": "...", "5": "..."}
   }
 ],
 "softskills_not_selected": [
-  {"id": "S06", "reason": "ไม่มี sub_lo ที่ให้ประเมินหรือเทียบแหล่งข้อมูล"}
+  {"id": "S06", "reason": "ไม่มี main_lo ที่ให้ประเมินหรือเทียบแหล่งข้อมูล"}
 ]
 ```
 

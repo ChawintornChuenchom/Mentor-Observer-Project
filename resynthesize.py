@@ -2,8 +2,8 @@
 
 ใช้เมื่ออัปเดต template (templates/lo, templates/softskills) หรือ prompt ของ Synthesizer
 มี 3 โหมด:
-1. สร้างใหม่ทั้งหมด — คำทักทายที่ cache ไว้ (greetings/) จะถูกลบ เพราะสร้างจาก Sub LO ชุดเดิม
-2. สร้างเฉพาะ soft skill ใหม่ (ขั้น 4) — ใช้ sub_los เดิม
+1. สร้างใหม่ทั้งหมด — คำทักทายที่ cache ไว้ (greetings/) จะถูกลบ เพราะสร้างจาก Main LO ชุดเดิม
+2. สร้างเฉพาะ soft skill ใหม่ (ขั้น 4) — ใช้ main_los เดิม
 3. ดึง soft skill ที่ไม่ถูกเลือกกลับมา (add_softskill) — รัน 4B สกิลเดียว
 """
 import json
@@ -28,12 +28,12 @@ def _ask_add_softskill(synth: Synthesizer, lesson_path) -> dict | None:
     choice   = select_option("เลือกสกิล", [f"{s['id']} — {s.get('reason', '')}" for s in not_selected])
     skill_id = choice.split(" ", 1)[0]
 
-    for lo in objectives["sub_los"]:
+    for lo in objectives["main_los"]:
         print(f"  {lo['id']}: {lo['statement']}")
-    linked = [i.strip() for i in input("linked_sub_los (คั่นด้วย , เช่น s2,s3): ").split(",") if i.strip()]
-    sub_lo = select_option("sub_lo ที่จะปรับกิจกรรม", linked) if linked else ""
+    linked = [i.strip() for i in input("linked_main_los (คั่นด้วย , เช่น s2,s3): ").split(",") if i.strip()]
+    main_lo = select_option("main_lo ที่จะปรับกิจกรรม", linked) if linked else ""
     how    = input("วิธีปรับกิจกรรม (how): ").strip()
-    return synth.add_softskill(str(lesson_path), skill_id, linked, {"sub_lo": sub_lo, "how": how})
+    return synth.add_softskill(str(lesson_path), skill_id, linked, {"main_lo": main_lo, "how": how})
 
 
 def main():
