@@ -41,7 +41,7 @@ def subs(n, chunks=None, overrides=None):
     for i in range(1, n + 1):
         lo = {"id": f"s{i}", "statement": f"stmt{i}", "tag": "core", "type": "conceptual",
               "source_chunks": (chunks or {}).get(i, [f"c{i}"]),
-              "prompt_group": "P16", "content_type": "HUM-C",
+              "prompt_group": "P16", "content_type": "HUM-CTX",
               "observable_evidence": f"e{i}", "mentor_activity": f"m{i}",
               "rubric": {"0": "a", "1": "b", "2": "c", "3": "d"}}
         lo.update((overrides or {}).get(i, {}))

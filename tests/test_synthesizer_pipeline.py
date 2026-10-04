@@ -50,7 +50,7 @@ def usage(cached=0):
 def make_main_lo(i):
     return {
         "id": f"s{i}", "statement": f"stmt{i}", "tag": "core", "type": "conceptual",
-        "source_chunks": ["c1"], "prompt_group": "P10", "content_type": "THAI-R",
+        "source_chunks": ["c1"], "prompt_group": "P10", "content_type": "THAI-GRM",
         "observable_evidence": "e", "mentor_activity": "m",
         "rubric": {"0": "r0", "1": "r1", "2": "r2", "3": "r3"},
     }

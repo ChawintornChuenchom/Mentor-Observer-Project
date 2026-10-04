@@ -63,10 +63,10 @@ def softskill_selection_prompt() -> str:
 def softskills() -> dict[str, dict]:
     """{id: {"id", "name", "text", "not_evidence"}} เรียงตาม id"""
     result = {}
-    for path in sorted(SOFTSKILL_DIR.glob("S[0-9][0-9].md")):
+    for path in sorted(SOFTSKILL_DIR.glob("S[0-9][0-9]_*.md")):
         text = _read(path)
         meta = _frontmatter(text)
-        sid  = meta.get("id", path.stem)
+        sid  = meta.get("id", path.stem.split("_")[0])
         result[sid] = {
             "id":           sid,
             "name":         meta.get("name", sid),
