@@ -161,10 +161,16 @@ output ต้องเป็น JSON เสมอ ห้ามมี markdown:
   "reply": "ข้อความที่จะพูดกับนักเรียน",
   "current_lo": "s1",
   "trigger_observer": true หรือ false,
-  "trigger_lo": ["s1"] หรือ []
+  "trigger_lo": ["s1"] หรือ [],
+  "activity_used": ["hard:s1", "soft:S01"] หรือ []
 }}
 
-current_lo = id ของ Main LO ที่กำลังสอนอยู่ ณ ข้อความนี้ (เลือกจากรายการด้านบน 1 ค่าเสมอ)"""
+current_lo = id ของ Main LO ที่กำลังสอนอยู่ ณ ข้อความนี้ (เลือกจากรายการด้านบน 1 ค่าเสมอ)
+
+activity_used = กิจกรรมที่ "reply" นี้ใช้จริง (ไม่ใช่แค่ตั้งใจจะใช้ภายหลัง) เทียบกับรายการ Main LO ด้านบน:
+- "hard:<main_lo id>" ถ้า reply ใช้ "กิจกรรมเปิดโอกาสแสดงหลักฐาน" ของ main_lo นั้น
+- "soft:<skill id>" ถ้า reply ใช้กิจกรรม "สำหรับ soft skill <id>" ของ main_lo นั้น
+ไม่ได้ใช้เลยในเทิร์นนี้ → ตอบ [] ห้ามใส่ล่วงหน้า/เผื่อไว้"""
 
 
 def summarize_history(client: OpenAI, messages: list, prev_summary: str | None,
@@ -202,11 +208,14 @@ def salvage_mentor(raw: str, default_lo: str | None) -> dict:
     lo   = re.search(r'"current_lo"\s*:\s*"(s\d+)"', raw)
     trig = re.search(r'"trigger_observer"\s*:\s*(true|false)', raw)
     tlo  = re.findall(r'"(s\d+)"', raw.split("trigger_lo", 1)[1]) if "trigger_lo" in raw else []
+    act  = (re.findall(r'"((?:hard|soft):[^"]+)"', raw.split("activity_used", 1)[1])
+           if "activity_used" in raw else [])
     return {
         "reply":            reply,
         "current_lo":        lo.group(1) if lo else default_lo,
         "trigger_observer": (trig.group(1) == "true") if trig else False,
         "trigger_lo":        tlo,
+        "activity_used":     act,
     }
 
 
@@ -410,6 +419,8 @@ def main(client: OpenAI, api_key: str | None = None, student_id: str = "anonymou
     lo_answers: dict[str, list[str]] = {}   # lo_id -> ข้อความนักเรียนทั้งหมดที่ตอบตอนอยู่หัวข้อนั้น
                                              # (กันถามซ้ำ/ตัดสินคำตอบผิด — inject สดทุก turn แทนที่จะ
                                              #  หวังให้ Mentor "จำ" เองจาก raw history)
+    activities_used: set[str] = set()   # "hard:<lo_id>"/"soft:<skill_id>" ที่ Mentor รายงานว่าใช้ไปแล้ว
+                                         # (self-report จาก Mentor เอง — ไม่ได้ตรวจสอบย้อนกับ Observer)
 
     print(f"\n{'=' * 55}")
     print(f"  {character_name} | {subject} / {lesson}")
@@ -485,6 +496,19 @@ def main(client: OpenAI, api_key: str | None = None, student_id: str = "anonymou
             print(f"\n  Observer ถูกเรียก {observer.call_count} ครั้ง")
             print(f"  นักเรียนส่ง {student_msg_count} messages")
             print(f"  ผล Hard Skill: {'ผ่านทุกข้อ ✅' if all_hard_pass else 'ยังไม่ผ่านครบ ❌'}")
+
+            # สรุปความครอบคลุม: เทียบกิจกรรมที่กำหนดไว้ใน objectives.json กับที่ Mentor รายงานว่าใช้จริง
+            expected_activities = {
+                f"hard:{lo['id']}" for lo in main_los_list if lo.get("mentor_activity")
+            } | {
+                f"soft:{sk['id']}" for sk in objectives.get("softskills", [])
+                if (sk.get("required_activity") or {}).get("how")
+            }
+            missing_activities = sorted(expected_activities - activities_used)
+            tracker.run_log.event(
+                "activity_coverage", "summary",
+                f"used={sorted(activities_used)} missing={missing_activities}"
+            )
 
             tracker.save_chat_csv(subject, lesson, character_name)
             tracker.run_log.close()
@@ -597,6 +621,12 @@ def main(client: OpenAI, api_key: str | None = None, student_id: str = "anonymou
         reply        = mentor_data.get("reply", "")
         will_trigger = mentor_data.get("trigger_observer", False)
         trigger_lo   = mentor_data.get("trigger_lo", [])
+
+        # Mentor รายงานตัวเองว่าเทิร์นนี้ใช้ mentor_activity/required_activity ตัวไหนบ้าง (self-report)
+        activity_used = [a for a in (mentor_data.get("activity_used") or []) if isinstance(a, str)]
+        if activity_used:
+            activities_used.update(activity_used)
+            tracker.run_log.event("mentor_activity", "used", ", ".join(activity_used))
 
         # อัปเดตหัวข้อปัจจุบันตามที่ Mentor ระบุ
         new_lo = mentor_data.get("current_lo")
