@@ -45,10 +45,10 @@
 3. chunk ที่ไม่เข้ากลุ่มใด → ไม่ติดป้าย และพิจารณาใส่ missing_coverage
 4. ใช้ไม่เกิน 2 กลุ่มต่อบทเรียน ถ้าเกินให้เลือก 2 กลุ่มที่มี chunk สำคัญมากที่สุด
    และระบุกลุ่มที่ตัดทิ้งใน missing_coverage
-5. สร้าง Sub LO เฉพาะป้ายที่พบจริง ห้ามสร้างเพื่อให้ครบทุกป้าย
+5. สร้าง Main LO เฉพาะป้ายที่พบจริง ห้ามสร้างเพื่อให้ครบทุกป้าย
 6. ถ้ากฎของกลุ่มขัดกับ Base Prompt ให้ยึด Base Prompt
 
 ## บันทึกใน output
 "prompt_groups": ["P0x", ...],
 "group_reason": "เหตุผลสั้นๆ ว่าทำไมเลือกกลุ่มเหล่านี้"
-และทุก Sub LO มี "prompt_group", "content_type", "observable_evidence", "mentor_activity"
+และทุก Main LO มี "prompt_group", "content_type", "observable_evidence", "mentor_activity"

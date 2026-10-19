@@ -1,0 +1,13 @@
+﻿timestamp,process,step,event,detail,model,in_tok,cached_tok,out_tok,cost_usd,cost_thb,balance_usd
+2026-10-04 01:00:36,resynth,read_content,info,"3 chunks, 2422 ตัวอักษร, โหมดเต็ม",,0,0,0,0.0,0.0,
+2026-10-04 01:00:39,resynth,select_groups,cost,,google/gemini-2.5-flash,2472,2036,115,0.00047938,0.0163,
+2026-10-04 01:00:39,resynth,select_groups,result,groups=['P16'] reason=เนื้อหาเกี่ยวข้องกับการตีความและวิเคราะห์บริบททางประวัติศาสตร์ วัฒนธรรม สังคม และเศรษฐกิจของอาณาจักรธนบุรี รวมถึงการสืบทอดและฟื้นฟูองค์ความรู้และศิลปะ ซึ่งสอดคล้องกับหลักการของมนุษยศาสตร์ที่เน้นการตีความตัวบทและหลักฐานทางประวัติศาสตร์,,0,0,0,0.0,0.0,
+2026-10-04 01:00:50,resynth,lo_rubric,cost,,google/gemini-2.5-flash,3106,0,1753,0.0053143,0.1807,
+2026-10-04 01:00:50,resynth,lo_rubric,result,4 sub_los,,0,0,0,0.0,0.0,
+2026-10-04 01:00:52,resynth,consolidate,cost,,google/gemini-2.5-flash,502,0,133,0.0004831,0.0164,
+2026-10-04 01:00:52,resynth,consolidate,merge,"s1, s3, s4 → นักเรียนสามารถวิเคราะห์แนวทางการฟื้นฟูอาณาจักรธนบุรีของสมเด็จพระเจ้าตากสินมหาราช ทั้งด้านการเลือกราชธานี การฟื้นฟูเศรษฐกิจ สังคม และศิลปวัฒนธรรม ภายหลังการเสียกรุงศรีอยุธยา",,0,0,0,0.0,0.0,
+2026-10-04 01:00:59,resynth,rubric_remerge,cost,,google/gemini-2.5-flash,2295,2283,545,0.00162484,0.0552,
+2026-10-04 01:01:05,resynth,soft_select,cost,,google/gemini-2.5-flash,2608,0,814,0.0028174,0.0958,
+2026-10-04 01:01:05,resynth,soft_select,result,"selected=['S01'] not_selected=['S02', 'S03', 'S04', 'S05', 'S06', 'S07', 'S08', 'S09', 'S10', 'S11', 'S12']",,0,0,0,0.0,0.0,
+2026-10-04 01:01:08,resynth,soft_indicator_S01,cost,,google/gemini-2.5-flash,2313,0,398,0.0016889,0.0574,
+2026-10-04 01:01:08,resynth,summary,close,start=48.769457596 end=48.769457596 actual_spent=0.0 tracked=0.01240792 untracked=-0.01240792 in_tok=13296 cached_tok=4319 out_tok=3758,,13296,4319,3758,0.01240792,0.4219,48.769457596

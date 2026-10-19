@@ -1,0 +1,17 @@
+﻿timestamp,process,step,event,detail,model,in_tok,cached_tok,out_tok,cost_usd,cost_thb,balance_usd
+2026-10-04 00:37:02,resynth,read_content,info,"3 chunks, 2422 ตัวอักษร, โหมดเต็ม",,0,0,0,0.0,0.0,
+2026-10-04 00:37:08,resynth,select_groups,cost,,google/gemini-2.5-flash,2472,2460,109,0.0005549,0.0189,
+2026-10-04 00:37:08,resynth,select_groups,result,groups=['P16'] reason=เนื้อหาเกี่ยวข้องกับการตีความและวิเคราะห์บริบททางประวัติศาสตร์ วรรณกรรม และศิลปวัฒนธรรมของอาณาจักรธนบุรี ซึ่งสอดคล้องกับแนวทางของมุมมองมนุษยศาสตร์และจริยศาสตร์ที่เน้นการตีความตัวบทและอภิปรายแนวคิดทางประวัติศาสตร์,,0,0,0,0.0,0.0,
+2026-10-04 00:37:19,resynth,lo_rubric,cost,,google/gemini-2.5-flash,3095,3083,1656,0.00449301,0.1528,
+2026-10-04 00:37:19,resynth,lo_rubric,result,4 sub_los,,0,0,0,0.0,0.0,
+2026-10-04 00:37:20,resynth,consolidate,cost,,google/gemini-2.5-flash,444,0,16,0.0001732,0.0059,
+2026-10-04 00:37:26,resynth,soft_select,cost,,google/gemini-2.5-flash,2815,0,759,0.002742,0.0932,
+2026-10-04 00:37:26,resynth,soft_select,result,"selected=['S01'] not_selected=['S02', 'S03', 'S04', 'S05', 'S06', 'S07', 'S08', 'S09', 'S10', 'S11', 'S12']",,0,0,0,0.0,0.0,
+2026-10-04 00:37:29,resynth,soft_indicator_S01,cost,,google/gemini-2.5-flash,1969,0,326,0.0014057,0.0478,
+2026-10-04 00:37:34,resynth,soft_select,cost,,google/gemini-2.5-flash,2815,2037,819,0.00234201,0.0796,
+2026-10-04 00:37:34,resynth,soft_select,result,"selected=['S01'] not_selected=['S02', 'S03', 'S04', 'S05', 'S06', 'S07', 'S08', 'S09', 'S10', 'S11', 'S12']",,0,0,0,0.0,0.0,
+2026-10-04 00:37:40,resynth,soft_select,cost,,google/gemini-2.5-flash,2815,0,893,0.003077,0.1046,
+2026-10-04 00:37:40,resynth,soft_select,result,"selected=['S01'] not_selected=['S02', 'S03', 'S04', 'S05', 'S06', 'S07', 'S08', 'S09', 'S10', 'S11', 'S12']",,0,0,0,0.0,0.0,
+2026-10-04 00:37:45,resynth,soft_select,cost,,google/gemini-2.5-flash,2815,0,774,0.0027795,0.0945,
+2026-10-04 00:37:45,resynth,soft_select,result,"selected=['S01'] not_selected=['S02', 'S03', 'S04', 'S05', 'S06', 'S07', 'S08', 'S09', 'S10', 'S11', 'S12']",,0,0,0,0.0,0.0,
+2026-10-04 00:37:45,resynth,summary,close,start=48.845012529 end=48.845012529 actual_spent=0.0 tracked=0.01756732 untracked=-0.01756732 in_tok=19240 cached_tok=7580 out_tok=5352,,19240,7580,5352,0.01756732,0.5973,48.845012529

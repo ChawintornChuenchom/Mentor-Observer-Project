@@ -42,3 +42,9 @@ SYNTH_PART_CHARS  = int(os.getenv("SYNTH_PART_CHARS", "60000"))
 #   - ทางเลือกอื่น: google/gemini-2.5-flash-lite (ราคาพอกัน), qwen/qwen2.5-vl-72b-instruct (แพงกว่า ~8 เท่า)
 #   - qwen/qwen-2.5-vl-7b-instruct:free ถูกถอดออกจาก OpenRouter แล้ว
 MODEL_OCR         = os.getenv("MODEL_OCR",         "qwen/qwen3-vl-32b-instruct")
+# Synthesizer: temperature ของทุกการเรียกโมเดล (ขั้น 1–4, consolidate, summary, สรุปก้อน)
+# 0 = ให้ผลนิ่งที่สุดระหว่างรอบ (ไม่การันตีเหมือนกัน 100%) — ไม่กระทบ Mentor/Observer/OCR
+SYNTH_TEMPERATURE = float(os.getenv("SYNTH_TEMPERATURE", "0"))
+# Synthesizer: reasoning effort สำหรับโมเดลที่รองรับ (เช่น openai/gpt-6-luna) — ว่าง = ไม่ส่ง
+# ค่า: minimal / low / medium / high (ส่งผ่าน OpenRouter เป็น reasoning.effort)
+SYNTH_REASONING_EFFORT = os.getenv("SYNTH_REASONING_EFFORT", "").strip()

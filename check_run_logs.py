@@ -2,7 +2,8 @@
 
 ใช้ตรวจแบบ read-only ไม่เรียก LLM เพิ่ม — รันหลัง python resynthesize.py / main.py / mentor.py
 เพื่อดูว่า cache ทำงานจริงไหม (cache hit ควรสูงตั้งแต่ขั้น lo_rubric เป็นต้นไป) และมีคำเตือนจาก
-การตรวจกันหลอนของ Synthesizer (evidence_chunks/rubric/soft skill ไม่ครบ) หรือไม่
+การตรวจกันหลอนของ Synthesizer (source_chunks/rubric) และตัวตรวจ soft skill (soft_select,
+soft_indicator_Sxx) หรือไม่ — ขั้น 4A/4B ไม่แนบเนื้อหาเต็มบท จึงไม่อยู่ใน CACHE_STEPS
 """
 import csv
 import glob
@@ -11,7 +12,7 @@ import os
 import sys
 
 RUNS_DIR = "logs/runs"
-CACHE_STEPS = ("select_groups", "lo_rubric", "rubric_remerge", "softskills")
+CACHE_STEPS = ("select_groups", "lo_rubric", "rubric_remerge")
 
 
 def _read_rows(path: str) -> list[dict]:
