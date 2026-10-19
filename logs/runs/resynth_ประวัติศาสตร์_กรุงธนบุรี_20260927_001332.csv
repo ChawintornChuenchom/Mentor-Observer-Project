@@ -1,0 +1,9 @@
+﻿timestamp,process,step,event,detail,model,in_tok,cached_tok,out_tok,cost_usd,cost_thb,balance_usd
+2026-09-27 00:13:32,resynth,read_content,info,"3 chunks, 2422 ตัวอักษร, โหมดเต็ม",,0,0,0,0.0,0.0,
+2026-09-27 00:13:41,resynth,select_groups,cost,,anthropic/claude-sonnet-5,5081,0,272,0.013963,0.4747,
+2026-09-27 00:13:41,resynth,select_groups,result,groups=['P16'] reason=เนื้อหาเป็นประวัติศาสตร์อาณาจักรธนบุรี ต้องตีความเหตุการณ์ทางประวัติศาสตร์ ยุทธศาสตร์ เศรษฐกิจ และวัฒนธรรมในอดีต ไม่มีการปรับบทกฎหมายกับข้อเท็จจริงหรือวิเคราะห์ข้อมูลชุมชนปัจจุบัน จึงเข้ากับมนุษยศาสตร์ที่ตีความหลักฐาน/เหตุการณ์ทางประวัติศาสตร์และอภิปรายแนวคิด,,0,0,0,0.0,0.0,
+2026-09-27 00:15:02,resynth,lo_rubric,cost,,anthropic/claude-sonnet-5,6681,2162,6398,0.0734504,2.4973,
+2026-09-27 00:15:02,resynth,lo_rubric,result,5 sub_los,,0,0,0,0.0,0.0,
+2026-09-27 00:15:05,resynth,consolidate,cost,,anthropic/claude-sonnet-5,1509,0,12,0.003138,0.1067,
+2026-09-27 00:18:14,resynth,softskills,cost,,anthropic/claude-sonnet-5,15224,2162,15146,0.1780164,6.0526,
+2026-09-27 00:18:14,resynth,summary,close,start=None end=None actual_spent=None tracked=0.2685678 untracked=None in_tok=28495 cached_tok=4324 out_tok=21828,,28495,4324,21828,0.2685678,9.1313,

@@ -208,7 +208,7 @@ def test_build_softskills_sends_only_linked_chunks():
     assert "เนื้อหา c1" not in select_prompt              # 4A ไม่ส่งเนื้อหาบทเรียน
     indicator_prompt = client.chat.completions.calls[1][0]["content"]
     assert "[c1] เนื้อหา c1" in indicator_prompt and "เนื้อหา c2" not in indicator_prompt
-    assert "Rubric กลาง" in indicator_prompt and "## อ้างอิง" not in indicator_prompt
+    assert "แกนความซับซ้อนของพฤติกรรม" in indicator_prompt and "## อ้างอิง" not in indicator_prompt
     assert objectives["softskills"][0]["lesson_indicators"] == GOOD
     check_before_write(objectives, SKILLS)
 
